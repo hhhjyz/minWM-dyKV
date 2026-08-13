@@ -1,0 +1,82 @@
+import importlib.util
+import pathlib
+import sys
+import unittest
+
+import torch
+
+
+WAN21_ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(WAN21_ROOT))
+
+MODULE_PATH = WAN21_ROOT / "pipeline" / "dykv_memory.py"
+SPEC = importlib.util.spec_from_file_location("dykv_memory", MODULE_PATH)
+dykv_memory = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = dykv_memory
+SPEC.loader.exec_module(dykv_memory)
+
+DyKVBank = dykv_memory.DyKVBank
+DyKVConfig = dykv_memory.DyKVConfig
+compress_retrieved_kv = dykv_memory.compress_retrieved_kv
+
+
+def _cache(values: torch.Tensor) -> dict:
+    return {
+        "k": values.clone(),
+        "v": (values + 100).clone(),
+        "local_end_index": torch.tensor(values.shape[1]),
+    }
+
+
+class DyKVMemoryTest(unittest.TestCase):
+    def test_config_rejects_unaligned_memory_budget(self):
+        config = DyKVConfig(enabled=True, memory_frames=6)
+        with self.assertRaisesRegex(ValueError, "divisible"):
+            config.validate(chunk_frames=4)
+
+    def test_bank_archives_latest_clean_tokens_and_only_exposes_evicted_blocks(self):
+        values = torch.arange(12, dtype=torch.float32).reshape(1, 12, 1, 1)
+        bank = DyKVBank()
+        block = bank.archive_clean_block(
+            [_cache(values)], frame_start=4, frame_count=2, frame_tokens=2
+        )
+        self.assertEqual(block.layers[0].k.flatten().tolist(), [8.0, 9.0, 10.0, 11.0])
+        self.assertEqual(
+            bank.evicted_candidates(current_frame=7, local_frames=4, sink_frames=1), []
+        )
+        self.assertEqual(
+            bank.evicted_candidates(current_frame=10, local_frames=4, sink_frames=1), [0]
+        )
+
+    def test_retrieval_compression_keeps_anchor_and_novel_tokens(self):
+        # Two frames, four scalar-key tokens each. The anchor centroid is positive;
+        # the most negative second-frame tokens are therefore the most novel.
+        k = torch.tensor([1, 1, 1, 1, 4, -3, 2, -2], dtype=torch.float32).reshape(1, 8, 1, 1)
+        v = torch.arange(8, dtype=torch.float32).reshape(1, 8, 1, 1)
+        compressed_k, compressed_v = compress_retrieved_kv(
+            k, v, chunk_frames=2, frame_tokens=4, keep_ratio=0.5
+        )
+        self.assertEqual(compressed_k.shape[1], 6)
+        self.assertTrue(compressed_k[:, :4].equal(k[:, :4]))
+        self.assertEqual(compressed_v.flatten().tolist(), [0, 1, 2, 3, 5, 7])
+
+    def test_materialize_compresses_after_selection_without_mutating_bank(self):
+        bank = DyKVBank()
+        first = torch.arange(8, dtype=torch.float32).reshape(1, 8, 1, 1)
+        second = torch.arange(8, 16, dtype=torch.float32).reshape(1, 8, 1, 1)
+        bank.archive_clean_block([_cache(first)], frame_start=4, frame_count=2, frame_tokens=4)
+        bank.archive_clean_block([_cache(second)], frame_start=6, frame_count=2, frame_tokens=4)
+
+        before = bank.blocks[0].layers[0].k.clone()
+        payload = bank.materialize(
+            [1, 0], target_device="cpu", chunk_frames=2, frame_tokens=4, keep_ratio=0.5
+        )[0]
+
+        self.assertEqual(payload["src_frame_ids"], [4, 6])
+        self.assertEqual(payload["chunk_token_lengths"], [6, 6])
+        self.assertEqual(payload["k"].shape[1], 12)
+        self.assertTrue(bank.blocks[0].layers[0].k.equal(before))
+
+
+if __name__ == "__main__":
+    unittest.main()
