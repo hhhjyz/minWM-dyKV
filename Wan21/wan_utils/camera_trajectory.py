@@ -14,6 +14,9 @@ Trajectory string format (each step = 0.08 unit translation or 3° rotation):
   l*N  -- yaw right     (rotate around Y, negative)
   i*N  -- pitch up      (rotate around X, negative)
   k*N  -- pitch down    (rotate around X, positive)
+  n*N  -- keep the camera static
+
+An optional multiplier scales one motion step, e.g. ``j@2.5*40``.
 
 Example: "w*19" -> 20-frame forward dolly (1 identity + 19 steps).
 Chain segments: "w*10,d*9", "w*9,j*10"
@@ -39,6 +42,7 @@ def _rot_y(theta):
 
 # Direction -> per-step motion dict (same convention as HY-WorldPlay)
 _MOTIONS = {
+    "n":  {},
     "w":  {"forward":  _STEP},
     "s":  {"forward": -_STEP},
     "d":  {"right":    _STEP},
@@ -89,13 +93,16 @@ def parse_trajectory(traj_str: str) -> np.ndarray:
     motions = []
     for seg in segments:
         seg = seg.strip()
-        m = re.fullmatch(r"([a-z]+)\*(\d+)", seg)
+        m = re.fullmatch(r"([a-z]+)(?:@([0-9]+(?:\.[0-9]+)?))?\*(\d+)", seg)
         if m is None:
             raise ValueError(f"Cannot parse trajectory segment: '{seg}'. Expected 'w*19'.")
-        key, n = m.group(1), int(m.group(2))
+        key, multiplier_text, n_text = m.groups()
+        n = int(n_text)
         if key not in _MOTIONS:
             raise ValueError(f"Unknown direction '{key}'. Valid: {list(_MOTIONS.keys())}")
-        motions.extend([_MOTIONS[key]] * n)
+        multiplier = float(multiplier_text) if multiplier_text is not None else 1.0
+        motion = {name: value * multiplier for name, value in _MOTIONS[key].items()}
+        motions.extend([motion] * n)
 
     c2w_list = _generate_c2w_trajectory(motions)
     T = len(c2w_list)

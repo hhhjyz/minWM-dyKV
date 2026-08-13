@@ -33,6 +33,16 @@ Record the following for every run:
 3. MBench cases: report benchmark-native metrics and per-case artifacts.
 4. Resource profile: peak VRAM, CPU bank bytes, retrieval time, and total latency.
 
+## MBench protocol
+
+- Use MBench-A official assignments; record the exact `samples.jsonl` checksum.
+- Use 40 latent poses for 10s/161-frame cases and 100 for 25s/401-frame cases.
+- Keep case assignment, checkpoint, latent length, resolution, and seeds identical
+  between B0/B1/B2.
+- Register each method and seed as a distinct MBench `model_id`.
+- Run contract validation before evaluation and record which metrics were skipped
+  for missing DA3/VLM artifacts.
+
 ## Result template
 
 | Commit | Run | Cases | Seed | Frames | Quality report | Peak VRAM | Time | Notes |
