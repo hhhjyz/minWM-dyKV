@@ -3,6 +3,9 @@
 minWM-dyKV 支持 MBench-A 的动作条件用例。MBench-T 使用随时间变化的文本片段，超出了
 当前 minWM 推理接口的支持范围。
 
+当前官方任务清单的动作分布，以及基于 yaw/FOV 的动态空间压缩适合性分析，见
+[`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)。
+
 ## 适配内容
 
 `mbench_adapter.py prepare` 读取基准中以模型为中心的任务分配清单，并将每个
