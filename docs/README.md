@@ -25,9 +25,10 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - 仅在将检索 KV 实例化为注意力输入时执行压缩；
 - 将三个区域统一重映射到模型训练时的时序 RoPE 范围内。
 
-公开推理接口仅保留一个 dyKV 参数：
+公开推理接口保留一个启用参数和一个有限枚举：
 
 - `--dykv`：启用完整方法；
+- `--dykv-case`：从注册好的整体实验预设中选择，不暴露单个内部超参数。
 
 区域大小等实现常量集中在一个带类型的配置对象中。这样既能在 Python 层进行消融实验，
 也不会把每个内部设计都变成命令行超参数。
@@ -39,6 +40,7 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - [`FOV_RETRIEVAL.md`](FOV_RETRIEVAL.md)：兼容 HY-WorldPlay 的 FOV 评分与选择；
 - [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)：基于相机视场的动态空间 token 裁剪、MBench 适合性与实施计划；
 - [`ABLATIONS.md`](ABLATIONS.md)：动态压缩、检索与几何设计的消融实验矩阵；
+- [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)：六个可运行 case 与普通/MBench 统一 runner；
 - [`MBENCH.md`](MBENCH.md)：用例转换、生成与评测流程；
 - [`EXPERIMENTS.md`](EXPERIMENTS.md)：实验矩阵、运行命令、环境与实测结果。
 

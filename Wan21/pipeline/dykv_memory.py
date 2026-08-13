@@ -37,6 +37,8 @@ class DyKVConfig:
     fov_radius: float = 8.0
     fov_horizontal_degrees: float = 60.0
     fov_vertical_degrees: float = 35.0
+    retrieval_fov_source: str = "intrinsics"
+    compression_fov_source: str = "intrinsics"
 
     def validate(self, *, chunk_frames: int) -> "DyKVConfig":
         if self.memory_frames <= 0:
@@ -58,6 +60,10 @@ class DyKVConfig:
             raise ValueError(
                 "dyKV compression_mode must be none, fixed_novelty, or yaw_fov"
             )
+        if self.retrieval_fov_source not in {"fixed", "intrinsics"}:
+            raise ValueError("dyKV retrieval_fov_source must be fixed or intrinsics")
+        if self.compression_fov_source not in {"fixed", "intrinsics"}:
+            raise ValueError("dyKV compression_fov_source must be fixed or intrinsics")
         occupied = self.sink_frames + self.memory_frames + self.local_frames
         if occupied != self.rope_train_frames:
             raise ValueError(
@@ -181,6 +187,16 @@ def _horizontal_fov_bounds(K: torch.Tensor) -> tuple[float, float] | None:
     return math.atan((0.0 - cx) / fx), math.atan((1.0 - cx) / fx)
 
 
+def _fixed_horizontal_intrinsics(horizontal_degrees: float) -> torch.Tensor:
+    if not 0.0 < float(horizontal_degrees) < 180.0:
+        raise ValueError("fixed horizontal FOV must be in (0, 180) degrees")
+    focal = 0.5 / math.tan(math.radians(float(horizontal_degrees)) / 2.0)
+    return torch.tensor(
+        [[focal, 0.0, 0.5], [0.0, focal, 0.5], [0.0, 0.0, 1.0]],
+        dtype=torch.float64,
+    )
+
+
 def build_yaw_crop_plan(
     *,
     historical_viewmats: torch.Tensor | None,
@@ -190,6 +206,8 @@ def build_yaw_crop_plan(
     frame_count: int,
     frame_tokens: int,
     spatial_shape: tuple[int, int] | None,
+    fov_source: str = "intrinsics",
+    fixed_horizontal_degrees: float = 60.0,
 ) -> YawCropPlan | None:
     """Build a direction-aware latent-column crop for pure yaw motion.
 
@@ -200,13 +218,20 @@ def build_yaw_crop_plan(
     """
 
     historical_poses = _single_batch_frames(historical_viewmats, matrix_size=4)
-    historical_intrinsics = _single_batch_frames(historical_Ks, matrix_size=3)
     current_poses = _single_batch_frames(current_viewmats, matrix_size=4)
-    current_intrinsics = _single_batch_frames(current_Ks, matrix_size=3)
-    if any(value is None for value in (
-        historical_poses, historical_intrinsics, current_poses, current_intrinsics
-    )):
+    if historical_poses is None or current_poses is None:
         return None
+    if fov_source == "fixed":
+        fixed_K = _fixed_horizontal_intrinsics(fixed_horizontal_degrees)
+        historical_intrinsics = fixed_K.repeat(historical_poses.shape[0], 1, 1)
+        current_intrinsics = fixed_K.repeat(current_poses.shape[0], 1, 1)
+    elif fov_source == "intrinsics":
+        historical_intrinsics = _single_batch_frames(historical_Ks, matrix_size=3)
+        current_intrinsics = _single_batch_frames(current_Ks, matrix_size=3)
+        if historical_intrinsics is None or current_intrinsics is None:
+            return None
+    else:
+        raise ValueError("crop fov_source must be fixed or intrinsics")
     if spatial_shape is None or len(spatial_shape) != 2:
         return None
     height, width = (int(spatial_shape[0]), int(spatial_shape[1]))
@@ -433,6 +458,8 @@ class DyKVBank:
         compression_mode: str = "yaw_fov",
         current_viewmats: torch.Tensor | None = None,
         current_Ks: torch.Tensor | None = None,
+        compression_fov_source: str = "intrinsics",
+        fixed_horizontal_degrees: float = 60.0,
     ) -> list[dict]:
         """Build one compressed retrieval payload per transformer layer."""
 
@@ -463,6 +490,8 @@ class DyKVBank:
                     frame_count=block.frame_count,
                     frame_tokens=frame_tokens,
                     spatial_shape=block.spatial_shape,
+                    fov_source=compression_fov_source,
+                    fixed_horizontal_degrees=fixed_horizontal_degrees,
                 )
                 if plan is not None and plan.token_indices.numel() == 0:
                     continue

@@ -49,8 +49,8 @@ def _inside_angular_fov(
     pitch: torch.Tensor,
     yaw: torch.Tensor,
     *,
-    half_horizontal: float,
-    half_vertical: float,
+    horizontal_bounds: tuple[float, float],
+    vertical_bounds: tuple[float, float],
 ) -> torch.Tensor:
     vectors = points - center[None, :]
     x, y, z = vectors.unbind(dim=-1)
@@ -58,7 +58,51 @@ def _inside_angular_fov(
     elevation = torch.atan2(y, torch.sqrt(x.square() + z.square())) * (180.0 / math.pi)
     yaw_delta = torch.remainder(azimuth - yaw + 180.0, 360.0) - 180.0
     pitch_delta = torch.remainder(elevation - pitch + 180.0, 360.0) - 180.0
-    return (yaw_delta.abs() < half_horizontal) & (pitch_delta.abs() < half_vertical)
+    return (
+        (yaw_delta >= float(horizontal_bounds[0]))
+        & (yaw_delta <= float(horizontal_bounds[1]))
+        & (pitch_delta >= float(vertical_bounds[0]))
+        & (pitch_delta <= float(vertical_bounds[1]))
+    )
+
+
+def angular_fov_bounds(
+    K: torch.Tensor | None,
+    *,
+    source: str = "intrinsics",
+    horizontal_degrees: float = 60.0,
+    vertical_degrees: float = 35.0,
+) -> tuple[tuple[float, float], tuple[float, float], str]:
+    """Resolve angular image bounds in degrees.
+
+    Intrinsics are normalized to image width/height.  Missing or invalid
+    intrinsics deliberately fall back to HY-WorldPlay's fixed FOV so older
+    archives remain retrievable.
+    """
+
+    if source not in {"fixed", "intrinsics"}:
+        raise ValueError("FOV source must be fixed or intrinsics")
+    if source == "intrinsics" and K is not None:
+        matrix = K.detach().to(device="cpu", dtype=torch.float64)
+        if matrix.shape == (3, 3):
+            fx, fy = float(matrix[0, 0]), float(matrix[1, 1])
+            cx, cy = float(matrix[0, 2]), float(matrix[1, 2])
+            if all(math.isfinite(value) for value in (fx, fy, cx, cy)) and fx > 0 and fy > 0:
+                scale = 180.0 / math.pi
+                return (
+                    (math.atan(-cx / fx) * scale, math.atan((1.0 - cx) / fx) * scale),
+                    (math.atan(-cy / fy) * scale, math.atan((1.0 - cy) / fy) * scale),
+                    "intrinsics",
+                )
+    if not 0.0 < float(horizontal_degrees) < 180.0:
+        raise ValueError("horizontal FOV must be in (0, 180) degrees")
+    if not 0.0 < float(vertical_degrees) < 180.0:
+        raise ValueError("vertical FOV must be in (0, 180) degrees")
+    return (
+        (-float(horizontal_degrees) / 2.0, float(horizontal_degrees) / 2.0),
+        (-float(vertical_degrees) / 2.0, float(vertical_degrees) / 2.0),
+        "fixed" if source == "fixed" else "fixed_fallback",
+    )
 
 
 def fov_overlap(
@@ -66,6 +110,9 @@ def fov_overlap(
     historical_w2c: torch.Tensor,
     probe_points: torch.Tensor,
     *,
+    current_K: torch.Tensor | None = None,
+    historical_K: torch.Tensor | None = None,
+    fov_source: str = "intrinsics",
     horizontal_degrees: float = 60.0,
     vertical_degrees: float = 35.0,
     radius: float = 8.0,
@@ -89,22 +136,34 @@ def fov_overlap(
     historical_center, historical_pitch, historical_yaw = _camera_center_and_angles(
         historical_relative
     )
+    current_horizontal, current_vertical, _ = angular_fov_bounds(
+        current_K,
+        source=fov_source,
+        horizontal_degrees=horizontal_degrees,
+        vertical_degrees=vertical_degrees,
+    )
+    historical_horizontal, historical_vertical, _ = angular_fov_bounds(
+        historical_K,
+        source=fov_source,
+        horizontal_degrees=horizontal_degrees,
+        vertical_degrees=vertical_degrees,
+    )
     points_world = probe_points + current_center[None, :]
     current_mask = _inside_angular_fov(
         points_world,
         current_center,
         current_pitch,
         current_yaw,
-        half_horizontal=float(horizontal_degrees) / 2.0,
-        half_vertical=float(vertical_degrees) / 2.0,
+        horizontal_bounds=current_horizontal,
+        vertical_bounds=current_vertical,
     )
     historical_mask = _inside_angular_fov(
         points_world,
         historical_center,
         historical_pitch,
         historical_yaw,
-        half_horizontal=float(horizontal_degrees) / 2.0,
-        half_vertical=float(vertical_degrees) / 2.0,
+        horizontal_bounds=historical_horizontal,
+        vertical_bounds=historical_vertical,
     )
     historical_mask &= (
         torch.linalg.vector_norm(points_world - historical_center[None, :], dim=-1)
@@ -121,6 +180,9 @@ def chunk_fov_distance(
     historical_viewmats: torch.Tensor,
     probe_points: torch.Tensor,
     *,
+    current_Ks: torch.Tensor | None = None,
+    historical_Ks: torch.Tensor | None = None,
+    fov_source: str = "intrinsics",
     horizontal_degrees: float = 60.0,
     vertical_degrees: float = 35.0,
     radius: float = 8.0,
@@ -136,16 +198,30 @@ def chunk_fov_distance(
         current_viewmats = current_viewmats[0]
     if historical_viewmats.ndim == 4:
         historical_viewmats = historical_viewmats[0]
+    if current_Ks is not None and current_Ks.ndim == 4:
+        current_Ks = current_Ks[0]
+    if historical_Ks is not None and historical_Ks.ndim == 4:
+        historical_Ks = historical_Ks[0]
     if current_viewmats.shape[0] == 0 or historical_viewmats.shape[0] == 0:
         raise ValueError("FOV retrieval chunks cannot be empty")
     representatives = [0, min(historical_viewmats.shape[0] // 2, historical_viewmats.shape[0] - 1)]
     per_query = []
-    for current_pose in current_viewmats:
+    for query_index, current_pose in enumerate(current_viewmats):
+        current_K = None
+        if current_Ks is not None and query_index < current_Ks.shape[0]:
+            current_K = current_Ks[query_index]
         similarities = [
             fov_overlap(
                 current_pose,
                 historical_viewmats[index],
                 probe_points,
+                current_K=current_K,
+                historical_K=(
+                    historical_Ks[index]
+                    if historical_Ks is not None and index < historical_Ks.shape[0]
+                    else None
+                ),
+                fov_source=fov_source,
                 horizontal_degrees=horizontal_degrees,
                 vertical_degrees=vertical_degrees,
                 radius=radius,
@@ -161,11 +237,13 @@ def select_fov_blocks(
     candidate_indices: Sequence[int],
     *,
     current_viewmats: torch.Tensor,
+    current_Ks: torch.Tensor | None = None,
     memory_frames: int,
     probe_points: torch.Tensor,
     horizontal_degrees: float = 60.0,
     vertical_degrees: float = 35.0,
     radius: float = 8.0,
+    fov_source: str = "intrinsics",
 ) -> tuple[list[int], list[int], list[float]]:
     """Select closest blocks and return their complete FOV ranking.
 
@@ -182,6 +260,9 @@ def select_fov_blocks(
             current_viewmats,
             block.viewmats,
             probe_points,
+            current_Ks=current_Ks,
+            historical_Ks=getattr(block, "Ks", None),
+            fov_source=fov_source,
             horizontal_degrees=horizontal_degrees,
             vertical_degrees=vertical_degrees,
             radius=radius,

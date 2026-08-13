@@ -1,5 +1,5 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/../../.."; pwd)"
 cd "$PROJECT_ROOT"
@@ -19,8 +19,10 @@ DATA_PATH="${DATA_PATH:-Wan21/prompts/demos.txt}"
 OUTPUT_FOLDER="${OUTPUT_FOLDER:-output/causal_camera}"
 SP_SIZE="${SP_SIZE:-1}"
 DYKV="${DYKV:-0}"
+DYKV_CASE="${DYKV_CASE:-yaw_intrinsics}"
 NUM_OUTPUT_FRAMES="${NUM_OUTPUT_FRAMES:-20}"
 SEED="${SEED:-0}"
+DRY_RUN="${DRY_RUN:-0}"
 
 # ===== Camera Trajectory =====
 TRAJECTORY="${TRAJECTORY:-w*19}"
@@ -28,9 +30,9 @@ TRAJECTORY_PATH="${TRAJECTORY_PATH:-}"
 
 # Build trajectory argument
 if [ -n "$TRAJECTORY_PATH" ]; then
-  TRAJ_ARGS="--trajectory_path $TRAJECTORY_PATH"
+  TRAJ_ARGS=(--trajectory_path "$TRAJECTORY_PATH")
 else
-  TRAJ_ARGS="--trajectory $TRAJECTORY"
+  TRAJ_ARGS=(--trajectory "$TRAJECTORY")
 fi
 
 NUM_GPUS_PER_NODE=1
@@ -43,14 +45,15 @@ echo "=== Inference: Causal Camera Control (ODE/CD/DMD) ==="
 echo "  Config:     $CONFIG_PATH"
 echo "  Checkpoint: $CHECKPOINT_PATH"
 echo "  Output:     $OUTPUT_FOLDER"
+echo "  dyKV case:  $([ "$DYKV" = "1" ] && echo "$DYKV_CASE" || echo baseline)"
 
 DYKV_ARGS=()
 if [ "$DYKV" = "1" ]; then
-  DYKV_ARGS+=(--dykv)
+  DYKV_ARGS+=(--dykv --dykv-case "$DYKV_CASE")
 fi
 
 export SP_SIZE=$SP_SIZE
-torchrun \
+COMMAND=(torchrun \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
   --nproc_per_node=$NUM_GPUS_PER_NODE \
@@ -65,4 +68,12 @@ torchrun \
   --sp_size $SP_SIZE \
   --seed "$SEED" \
   "${DYKV_ARGS[@]}" \
-  $TRAJ_ARGS
+  "${TRAJ_ARGS[@]}")
+
+if [ "$DRY_RUN" = "1" ]; then
+  printf 'DRY_RUN:'
+  printf ' %q' "${COMMAND[@]}"
+  printf '\n'
+else
+  "${COMMAND[@]}"
+fi

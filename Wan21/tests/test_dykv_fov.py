@@ -1,4 +1,5 @@
 import importlib.util
+import math
 import pathlib
 import sys
 import unittest
@@ -26,6 +27,12 @@ def _w2c(*, x=0.0, yaw_degrees=0.0):
     return torch.linalg.inv(c2w)
 
 
+def _K(horizontal=89.424168, vertical=58.224681):
+    fx = 0.5 / math.tan(math.radians(horizontal) / 2.0)
+    fy = 0.5 / math.tan(math.radians(vertical) / 2.0)
+    return torch.tensor([[fx, 0.0, 0.5], [0.0, fy, 0.5], [0.0, 0.0, 1.0]])
+
+
 class DyKVFOVTest(unittest.TestCase):
     def setUp(self):
         self.points = dykv_fov.deterministic_sphere_points(20000, 8.0)
@@ -41,6 +48,35 @@ class DyKVFOVTest(unittest.TestCase):
         opposite = dykv_fov.fov_overlap(identity, _w2c(yaw_degrees=180), self.points)
         self.assertGreater(float(identical), 0.99)
         self.assertLess(float(opposite), 0.05)
+
+    def test_intrinsics_resolve_minwm_camera_fov(self):
+        horizontal, vertical, source = dykv_fov.angular_fov_bounds(_K())
+        self.assertEqual(source, "intrinsics")
+        self.assertAlmostEqual(horizontal[1] - horizontal[0], 89.424168, places=4)
+        self.assertAlmostEqual(vertical[1] - vertical[0], 58.224681, places=4)
+
+    def test_missing_intrinsics_explicitly_fall_back_to_fixed_fov(self):
+        horizontal, vertical, source = dykv_fov.angular_fov_bounds(None)
+        self.assertEqual(source, "fixed_fallback")
+        self.assertEqual(horizontal, (-30.0, 30.0))
+        self.assertEqual(vertical, (-17.5, 17.5))
+
+    def test_intrinsics_and_fixed_fov_are_distinct_ablation_cases(self):
+        identity = _w2c()
+        rotated = _w2c(yaw_degrees=70)
+        fixed = dykv_fov.fov_overlap(
+            identity, rotated, self.points, fov_source="fixed"
+        )
+        intrinsics = dykv_fov.fov_overlap(
+            identity,
+            rotated,
+            self.points,
+            current_K=_K(),
+            historical_K=_K(),
+            fov_source="intrinsics",
+        )
+        self.assertLess(float(fixed), 0.03)
+        self.assertGreater(float(intrinsics), 0.10)
 
     def test_selector_prefers_returned_camera_view_and_respects_frame_budget(self):
         current = torch.stack([_w2c(x=0.1)] * 4).unsqueeze(0)

@@ -83,11 +83,13 @@ class DyKVRuntime:
             bank,
             candidates,
             current_viewmats=current_viewmats,
+            current_Ks=current_Ks,
             memory_frames=self.config.memory_frames,
             probe_points=self.probe_points,
             horizontal_degrees=self.config.fov_horizontal_degrees,
             vertical_degrees=self.config.fov_vertical_degrees,
             radius=self.config.fov_radius,
+            fov_source=self.config.retrieval_fov_source,
         )
         payloads = bank.materialize(
             selected,
@@ -98,6 +100,8 @@ class DyKVRuntime:
             compression_mode=self.config.compression_mode,
             current_viewmats=current_viewmats,
             current_Ks=current_Ks,
+            compression_fov_source=self.config.compression_fov_source,
+            fixed_horizontal_degrees=self.config.fov_horizontal_degrees,
         ) if selected else None
         if not payloads:
             payloads = None
@@ -121,6 +125,8 @@ class DyKVRuntime:
                 "kept_columns_per_frame": diagnostics.get("kept_columns_per_frame", []),
                 "delta_yaw_degrees": diagnostics.get("delta_yaw_degrees", []),
                 "horizontal_fov_degrees": diagnostics.get("horizontal_fov_degrees", []),
+                "retrieval_fov_source": self.config.retrieval_fov_source,
+                "compression_fov_source": self.config.compression_fov_source,
                 "seconds": time.perf_counter() - started,
             }
         )
@@ -129,6 +135,9 @@ class DyKVRuntime:
     def summary(self) -> dict:
         return {
             "enabled": self.config.enabled,
+            "compression_mode": self.config.compression_mode,
+            "retrieval_fov_source": self.config.retrieval_fov_source,
+            "compression_fov_source": self.config.compression_fov_source,
             "branches": {branch: bank.summary() for branch, bank in self.banks.items()},
             "events": list(self.events),
         }

@@ -35,8 +35,8 @@ def _poses(yaw_degrees, frames=4, *, x=0.0):
     return torch.stack([_w2c(yaw_degrees=yaw_degrees, x=x)] * frames).unsqueeze(0)
 
 
-def _intrinsics(frames=4):
-    return torch.stack([_K()] * frames).unsqueeze(0)
+def _intrinsics(frames=4, horizontal_fov_degrees=60.0):
+    return torch.stack([_K(horizontal_fov_degrees)] * frames).unsqueeze(0)
 
 
 def _cache(values):
@@ -78,6 +78,22 @@ class DyKVDynamicCompressionTest(unittest.TestCase):
         self.assertIsNotNone(plan)
         self.assertEqual(plan.token_indices.numel(), 0)
         self.assertEqual(plan.kept_tokens_per_frame, (0, 0, 0, 0))
+
+    def test_fixed_and_intrinsics_fov_produce_separate_crop_cases(self):
+        kwargs = dict(
+            historical_viewmats=_poses(0.0),
+            historical_Ks=_intrinsics(horizontal_fov_degrees=89.424168),
+            current_viewmats=_poses(60.0),
+            current_Ks=_intrinsics(horizontal_fov_degrees=89.424168),
+            frame_count=4,
+            frame_tokens=24,
+            spatial_shape=(2, 12),
+        )
+        fixed = memory.build_yaw_crop_plan(**kwargs, fov_source="fixed")
+        intrinsic = memory.build_yaw_crop_plan(**kwargs, fov_source="intrinsics")
+        self.assertEqual(fixed.token_indices.numel(), 0)
+        self.assertGreater(intrinsic.token_indices.numel(), 0)
+        self.assertLess(intrinsic.token_indices.numel(), 96)
 
     def test_full_rotation_wraps_to_same_view(self):
         plan = self._plan(360.0)

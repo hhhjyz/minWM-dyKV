@@ -37,7 +37,23 @@ MBench 的长度指解码后视频帧数。Wan VAE 在时间维度上放大 4 �
 40 latent 帧（解码后 157 帧），官方 25 秒/401 帧条件采用 100 latent 帧（解码后
 397 帧）。默认运行器使用 100；基准报告中必须注明这一小段时长差异。
 
-## 生成与打包
+## 六组 Case 的统一生成与打包
+
+推荐使用统一 runner；它只准备一次 MBench 输入，然后依次生成选中的 case 并分别打包：
+
+```bash
+MBENCH_ROOT=/absolute/path/to/MBench-A-Setup \
+ASSIGNMENTS=/absolute/path/to/official/samples.jsonl \
+CASES=baseline,retrieval_no_compression,fixed_novelty,yaw_fixed_fov,yaw_mixed_fov,yaw_intrinsics \
+OUTPUT_ROOT=output/mbench_dykv_cases \
+NUM_OUTPUT_FRAMES=100 \
+SEED=0 \
+bash Wan21/scripts/inference/run_dykv_cases.sh
+```
+
+完整 case 定义和普通 prompt 用法见 [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)。
+
+## 单组完整方法的兼容入口
 
 ```bash
 MBENCH_ROOT=/absolute/path/to/MBench-A-Setup \
