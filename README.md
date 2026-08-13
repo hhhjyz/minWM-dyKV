@@ -1,4 +1,9 @@
-# 🌍 minWM: Full-Stack Open-Source Video World Model Framework
+# 🌍 minWM-dyKV: Dynamic World Memory for minWM
+
+> **dyKV extension.** This repository keeps minWM's training and inference stack,
+> and adds a focused long-horizon memory path: `sink | retrieval | local` KV,
+> retrieval-time compression, bounded tri-region RoPE, camera-FOV retrieval, and
+> MBench case support. Design and experiment records live in [`docs/`](docs/README.md).
 
 >  ***A full-stack framework and tutorial for newcomers, rather than a specific model.***
 
