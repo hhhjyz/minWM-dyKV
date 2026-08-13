@@ -37,9 +37,33 @@ class DyKVCasesTest(unittest.TestCase):
         disabled = [case.name for case in cases.DYKV_CASES.values() if not case.enabled]
         self.assertEqual(disabled, ["baseline"])
 
+    def test_every_case_uses_the_same_fixed_four_frame_sink(self):
+        for preset in cases.DYKV_CASES.values():
+            with self.subTest(case=preset.name):
+                self.assertEqual(preset.sink_mode, "fixed")
+                self.assertEqual(preset.sink_frames, 4)
+                self.assertEqual(
+                    preset.sink_frames + preset.local_frames,
+                    12 if preset.enabled else 20,
+                )
+
     def test_unknown_case_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "unknown dyKV case"):
             cases.get_dykv_case("unknown")
+
+    def test_invocation_defaults_match_fixed_sink_baseline_and_full_method(self):
+        baseline = cases.resolve_dykv_case(None, enabled=False)
+        complete = cases.resolve_dykv_case(None, enabled=True)
+        self.assertEqual(baseline.name, "baseline")
+        self.assertEqual(complete.name, "yaw_intrinsics")
+        self.assertEqual((baseline.sink_mode, baseline.sink_frames), ("fixed", 4))
+        self.assertEqual((complete.sink_mode, complete.sink_frames), ("fixed", 4))
+
+    def test_case_and_dykv_flag_mismatch_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "without --dykv"):
+            cases.resolve_dykv_case("baseline", enabled=True)
+        with self.assertRaisesRegex(ValueError, "with --dykv"):
+            cases.resolve_dykv_case("yaw_intrinsics", enabled=False)
 
 
 if __name__ == "__main__":

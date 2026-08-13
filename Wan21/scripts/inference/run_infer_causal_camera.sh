@@ -19,10 +19,18 @@ DATA_PATH="${DATA_PATH:-Wan21/prompts/demos.txt}"
 OUTPUT_FOLDER="${OUTPUT_FOLDER:-output/causal_camera}"
 SP_SIZE="${SP_SIZE:-1}"
 DYKV="${DYKV:-0}"
-DYKV_CASE="${DYKV_CASE:-yaw_intrinsics}"
+DYKV_CASE="${DYKV_CASE:-}"
 NUM_OUTPUT_FRAMES="${NUM_OUTPUT_FRAMES:-20}"
 SEED="${SEED:-0}"
 DRY_RUN="${DRY_RUN:-0}"
+
+if [ -z "$DYKV_CASE" ]; then
+  if [ "$DYKV" = "1" ]; then
+    DYKV_CASE="yaw_intrinsics"
+  else
+    DYKV_CASE="baseline"
+  fi
+fi
 
 # ===== Camera Trajectory =====
 TRAJECTORY="${TRAJECTORY:-w*19}"
@@ -47,9 +55,9 @@ echo "  Checkpoint: $CHECKPOINT_PATH"
 echo "  Output:     $OUTPUT_FOLDER"
 echo "  dyKV case:  $([ "$DYKV" = "1" ] && echo "$DYKV_CASE" || echo baseline)"
 
-DYKV_ARGS=()
+DYKV_ARGS=(--dykv-case "$DYKV_CASE")
 if [ "$DYKV" = "1" ]; then
-  DYKV_ARGS+=(--dykv --dykv-case "$DYKV_CASE")
+  DYKV_ARGS+=(--dykv)
 fi
 
 export SP_SIZE=$SP_SIZE

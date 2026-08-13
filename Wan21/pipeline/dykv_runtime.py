@@ -135,6 +135,8 @@ class DyKVRuntime:
     def summary(self) -> dict:
         return {
             "enabled": self.config.enabled,
+            "sink_mode": "fixed",
+            "sink_frames": self.config.sink_frames,
             "compression_mode": self.config.compression_mode,
             "retrieval_fov_source": self.config.retrieval_fov_source,
             "compression_fov_source": self.config.compression_fov_source,

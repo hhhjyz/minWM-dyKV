@@ -27,7 +27,7 @@ conda activate minwm-fa
 
 | 运行编号 | Case | 方法 | 目的 | 状态 |
 | --- | --- | --- | --- | --- |
-| B0 | `baseline` | 上游 minWM local cache | 质量/速度基线 | 待运行 |
+| B0 | `baseline` | 固定 4 帧 sink + rolling local 16 | 质量/速度基线 | 待运行 |
 | B1 | `retrieval_no_compression` | 不压缩的 dyKV | 单独分析检索收益 | 待运行 |
 | B2 | `fixed_novelty` | 固定内容压缩 dyKV | 与相机无关的压缩对照 | 待运行 |
 | B3 | `yaw_intrinsics` | 完整动态 dyKV | 评估记忆、速度与质量 | 待运行 |
@@ -36,7 +36,8 @@ conda activate minwm-fa
 `yaw_fixed_fov`、`yaw_mixed_fov` 和 `yaw_intrinsics`，定义见
 [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)。
 
-当前 B1/B2/B3 的固定 KV 布局为连续的 `4 + 8 + 8` latent：4 帧 sink、8 帧 retrieval、
+所有实验固定保留最初 4 帧 sink。B0 使用 `4 + 16`，B1/B2/B3 使用连续的
+`4 + 8 + 8` latent：4 帧 sink、8 帧 retrieval、
 8 帧 local（4 帧 recent + 4 帧 current），正好覆盖 20 帧 RoPE 训练窗口。
 动态空间压缩及完整消融矩阵见 [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)
 和 [`ABLATIONS.md`](ABLATIONS.md)。

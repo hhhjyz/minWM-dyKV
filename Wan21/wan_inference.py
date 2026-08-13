@@ -14,7 +14,7 @@ import json
 from wan_utils.dataset import TextDataset, TextImagePairDataset
 from wan_utils.misc import set_seed
 from wan_utils.camera_trajectory import parse_trajectory
-from dykv_cases import DEFAULT_DYKV_CASE, DYKV_CASES, get_dykv_case
+from dykv_cases import DYKV_CASES, resolve_dykv_case
 
 from demo_utils.memory import gpu, get_cuda_free_memory_gb, DynamicSwapInstaller
 
@@ -34,8 +34,8 @@ parser.add_argument("--dykv", action="store_true", help="Enable the complete dyK
 parser.add_argument(
     "--dykv-case",
     choices=tuple(DYKV_CASES),
-    default=DEFAULT_DYKV_CASE,
-    help="Registered dyKV experiment preset (used with --dykv)",
+    default=None,
+    help="Registered experiment preset (defaults to baseline, or yaw_intrinsics with --dykv)",
 )
 args = parser.parse_args()
 
@@ -87,10 +87,16 @@ config = OmegaConf.load(args.config_path)
 default_config = OmegaConf.load("Wan21/configs/default_config.yaml")
 config = OmegaConf.merge(default_config, config)
 
+dykv_case = resolve_dykv_case(args.dykv_case, enabled=args.dykv)
+
+# Every registered case uses the same fixed four-frame sink. In the baseline,
+# the remaining 16 frames are rolling local context. dyKV narrows the live
+# cache to 4 sink + 8 local and supplies the other 8 frames via retrieval.
+config.sink_mode = dykv_case.sink_mode
+config.sink_frames = dykv_case.sink_frames
+config.model_kwargs.sink_size = dykv_case.sink_frames
+
 if args.dykv:
-    dykv_case = get_dykv_case(args.dykv_case)
-    if not dykv_case.enabled:
-        raise ValueError("the baseline case must be run without --dykv")
     chunk_frames = int(config.get("num_frame_per_block", 1))
     if chunk_frames != 4:
         raise ValueError("dyKV currently targets the four-frame causal minWM checkpoint")
@@ -103,8 +109,7 @@ if args.dykv:
     # Fixed contiguous 4 + 8 + 8 layout: the live cache physically holds the
     # four-frame sink plus the eight-frame local region (recent + current).
     # Retrieved K/V lives in the CPU bank until attention materialization.
-    config.model_kwargs.sink_size = 4
-    config.model_kwargs.local_attn_size = 4 + 8
+    config.model_kwargs.local_attn_size = dykv_case.sink_frames + dykv_case.local_frames
     config.model_kwargs.dykv_enabled = True
     config.model_kwargs.dykv_memory_frames = 8
     config.model_kwargs.dykv_local_frames = 8
@@ -112,6 +117,8 @@ if args.dykv:
 else:
     config.dykv_enabled = False
     config.dykv_case = "baseline"
+    config.model_kwargs.local_attn_size = dykv_case.sink_frames + dykv_case.local_frames
+    config.model_kwargs.dykv_enabled = False
 
 # Import pipeline AFTER distributed init so causal_model.py sees CleanCode SP infra
 from pipeline import (
@@ -238,6 +245,8 @@ def record_generation(prompt_index, prompt, trajectory, output_path, status):
         "prompt": prompt,
         "trajectory": trajectory or "",
         "dykv_case": str(config.dykv_case),
+        "sink_mode": str(config.sink_mode),
+        "sink_frames": int(config.sink_frames),
         "output_path": os.path.abspath(output_path),
         "status": status,
     }
@@ -331,6 +340,8 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
             "prompt": prompt,
             "trajectory": traj_str or "",
             "case": str(config.dykv_case),
+            "sink_mode": str(config.sink_mode),
+            "sink_frames": int(config.sink_frames),
             "summary": getattr(pipeline, "last_dykv_summary", {}),
         }
         with open(dykv_events_path, "a", encoding="utf-8") as _f:

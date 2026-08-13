@@ -19,7 +19,8 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 
 旧原型暴露了许多彼此独立的开关。minWM-dyKV 改为使用一套完整、固定的预设：
 
-- 注意力布局固定为连续的 `sink 4 | retrieval 8 | local 8` latent，三区域之间不留空缺；
+- 所有 case 固定保留最初 4 帧 sink；baseline 使用 `4+16`，dyKV 使用连续的
+  `sink 4 | retrieval 8 | local 8` latent；
 - 被逐出的干净 KV 保存在 CPU 记忆库中；
 - 根据相机 FOV 重叠度对候选记忆排序；
 - 仅在将检索 KV 实例化为注意力输入时执行压缩；
@@ -36,6 +37,7 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 ## 模块文档
 
 - [`KV_MEMORY.md`](KV_MEMORY.md)：逐出存储、检索载荷与检索时压缩；
+- [`FIXED_SINK.md`](FIXED_SINK.md)：所有 case 的固定四帧 sink 与公平缓存布局；
 - [`TRI_REGION_ROPE.md`](TRI_REGION_ROPE.md)：有界时序位置布局；
 - [`FOV_RETRIEVAL.md`](FOV_RETRIEVAL.md)：兼容 HY-WorldPlay 的 FOV 评分与选择；
 - [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)：基于相机视场的动态空间 token 裁剪、MBench 适合性与实施计划；

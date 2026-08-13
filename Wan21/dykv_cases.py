@@ -11,6 +11,10 @@ import argparse
 from dataclasses import dataclass
 
 
+FIXED_SINK_MODE = "fixed"
+FIXED_SINK_FRAMES = 4
+
+
 @dataclass(frozen=True)
 class DyKVCase:
     name: str
@@ -19,6 +23,14 @@ class DyKVCase:
     retrieval_fov_source: str
     compression_fov_source: str
     description: str
+    sink_mode: str = FIXED_SINK_MODE
+    sink_frames: int = FIXED_SINK_FRAMES
+
+    @property
+    def local_frames(self) -> int:
+        """Live rolling context, including the current four-frame query."""
+
+        return 8 if self.enabled else 16
 
 
 DYKV_CASES = {
@@ -30,7 +42,7 @@ DYKV_CASES = {
             "none",
             "intrinsics",
             "intrinsics",
-            "上游 local KV cache，不启用长期检索",
+            "固定前 4 帧 sink + rolling local，不启用长期检索",
         ),
         DyKVCase(
             "retrieval_no_compression",
@@ -86,6 +98,15 @@ def get_dykv_case(name: str) -> DyKVCase:
         raise ValueError(f"unknown dyKV case {name!r}; choose one of: {choices}") from error
 
 
+def resolve_dykv_case(name: str | None, *, enabled: bool) -> DyKVCase:
+    requested = name or (DEFAULT_DYKV_CASE if enabled else "baseline")
+    case = get_dykv_case(requested)
+    if bool(case.enabled) != bool(enabled):
+        expected = "with --dykv" if case.enabled else "without --dykv"
+        raise ValueError(f"case {case.name!r} must be run {expected}")
+    return case
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="列出或校验 dyKV 实验 case")
     parser.add_argument("--validate", metavar="CASE", help="只校验一个 case 名称")
@@ -95,7 +116,10 @@ def main() -> None:
         return
     for case in DYKV_CASES.values():
         marker = " (default)" if case.name == DEFAULT_DYKV_CASE else ""
-        print(f"{case.name}{marker}\t{case.description}")
+        print(
+            f"{case.name}{marker}\t"
+            f"sink={case.sink_mode}:{case.sink_frames}\t{case.description}"
+        )
 
 
 if __name__ == "__main__":

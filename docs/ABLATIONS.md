@@ -13,7 +13,7 @@
 
 | 编号 | Case | 方法 | 回答的问题 |
 | --- | --- | --- | --- |
-| A0 | `baseline` | 上游 local cache | 无长期记忆的基线表现 |
+| A0 | `baseline` | 固定 4 帧 sink + rolling local 16 | 无长期记忆的基线表现 |
 | A1 | `retrieval_no_compression` | 内参 FOV 检索，不压缩 retrieval KV | 检索本身带来的质量收益与最大开销 |
 | A2 | `fixed_novelty` | 内参检索 + 固定锚点/新颖性压缩 | 与相机无关的内容压缩效果 |
 | A3 | `yaw_intrinsics` | 内参检索 + yaw/FOV 动态空间裁剪 | 完整方法的质量/效率折中 |

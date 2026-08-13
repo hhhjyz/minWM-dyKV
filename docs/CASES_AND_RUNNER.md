@@ -4,18 +4,20 @@
 
 所有可直接运行的对照都注册在 `Wan21/dykv_cases.py`。公开接口只增加一个枚举参数
 `--dykv-case`，每个 case 一次性确定压缩方式、检索 FOV 来源和裁剪 FOV 来源，不再暴露
-彼此独立的内部开关。固定缓存布局始终是连续的 `sink 4 + retrieval 8 + local 8` latent。
+彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink：baseline 使用
+`fixed sink 4 + rolling local 16`，五个 dyKV case 使用连续的
+`fixed sink 4 + retrieval 8 + local 8`。
 
 ## 2. 当前六个 Case
 
-| Case | dyKV | 检索 FOV | 检索时压缩 | 裁剪 FOV | 用途 |
-| --- | --- | --- | --- | --- | --- |
-| `baseline` | 关闭 | — | — | — | 上游 local cache 基线 |
-| `retrieval_no_compression` | 开启 | 相机 `K` | 不压缩 | — | 隔离长期检索收益和最大开销 |
-| `fixed_novelty` | 开启 | 相机 `K` | 固定锚点 + 新颖性 | — | 与相机无关的压缩对照 |
-| `yaw_fixed_fov` | 开启 | 固定 `60°×35°` | yaw 空间列裁剪 | 固定水平 `60°` | F0，复现固定角度假设 |
-| `yaw_mixed_fov` | 开启 | 固定 `60°×35°` | yaw 空间列裁剪 | 相机 `K` | F1，隔离检索角度的影响 |
-| `yaw_intrinsics` | 开启 | 相机 `K` | yaw 空间列裁剪 | 相机 `K` | F2，默认完整方法 |
+| Case | Sink | dyKV | 检索 FOV | 检索时压缩 | 裁剪 FOV | 用途 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `baseline` | 固定 4 | 关闭 | — | — | — | 无长期检索的固定 sink 基线 |
+| `retrieval_no_compression` | 固定 4 | 开启 | 相机 `K` | 不压缩 | — | 隔离长期检索收益和最大开销 |
+| `fixed_novelty` | 固定 4 | 开启 | 相机 `K` | 固定锚点 + 新颖性 | — | 与相机无关的压缩对照 |
+| `yaw_fixed_fov` | 固定 4 | 开启 | 固定 `60°×35°` | yaw 空间列裁剪 | 固定水平 `60°` | F0，复现固定角度假设 |
+| `yaw_mixed_fov` | 固定 4 | 开启 | 固定 `60°×35°` | yaw 空间列裁剪 | 相机 `K` | F1，隔离检索角度的影响 |
+| `yaw_intrinsics` | 固定 4 | 开启 | 相机 `K` | yaw 空间列裁剪 | 相机 `K` | F2，默认完整方法 |
 
 `baseline` 必须不带 `--dykv`；其余 case 通过 `--dykv --dykv-case NAME` 启用。当前 minWM
 默认归一化内参对应约 `89.424°×58.225°`，因此 F0 与 F2 是有效且差异明显的消融。
