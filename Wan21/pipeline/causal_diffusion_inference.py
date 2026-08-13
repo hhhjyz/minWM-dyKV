@@ -51,8 +51,12 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
             DyKVConfig(
                 enabled=bool(getattr(args, "dykv_enabled", False)),
                 memory_frames=int(getattr(args, "dykv_memory_frames", 8)),
+                retrieval_frames=int(getattr(args, "dykv_retrieval_frames", 8)),
                 sink_frames=int(getattr(args, "sink_frames", 4)),
                 compression_mode=str(getattr(args, "dykv_compression_mode", "yaw_fov")),
+                compression_keep_ratio=float(
+                    getattr(args, "dykv_compression_keep_ratio", 0.5)
+                ),
                 packing_mode=str(getattr(args, "dykv_packing_mode", "none")),
                 retrieval_fov_source=str(
                     getattr(args, "dykv_retrieval_fov_source", "intrinsics")

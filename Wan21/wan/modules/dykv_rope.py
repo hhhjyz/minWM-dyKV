@@ -171,14 +171,16 @@ def compose_tri_region(
                 raise ValueError("packed retrieval token lengths do not match K/V")
             if sum(token_lengths) > spec.memory_frames * frame_tokens:
                 raise ValueError("packed retrieval exceeds the token budget")
-            if frame_tokens % 4:
-                raise ValueError("packed retrieval frame size must have four atoms")
-            atom_tokens = frame_tokens // 4
-            if any(
-                length > frame_tokens or length % atom_tokens
-                for length in token_lengths
-            ):
-                raise ValueError("packed retrieval frame length is not atom-aligned")
+            atom_tokens = retrieval.get("packing_atom_tokens")
+            if atom_tokens is not None:
+                atom_tokens = int(atom_tokens)
+                if atom_tokens <= 0 or frame_tokens % atom_tokens:
+                    raise ValueError("packed retrieval has an invalid atom size")
+                if any(
+                    length > frame_tokens or length % atom_tokens
+                    for length in token_lengths
+                ):
+                    raise ValueError("packed retrieval frame length is not atom-aligned")
             slot_min = spec.sink_frames
             slot_max = spec.sink_frames + spec.memory_frames - 1
             if virtual_slots != sorted(virtual_slots) or any(

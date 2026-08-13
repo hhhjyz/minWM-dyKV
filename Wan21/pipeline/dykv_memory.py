@@ -26,6 +26,8 @@ class DyKVConfig:
 
     enabled: bool = False
     memory_frames: int = 8
+    # Number of raw source frames considered before retrieval-time packing.
+    retrieval_frames: int = 8
     sink_frames: int = 4
     # The local region includes both recent cached frames and the current query.
     local_frames: int = 8
@@ -55,6 +57,14 @@ class DyKVConfig:
                 "dyKV sink frames cannot be negative and the local region must "
                 "contain the current chunk"
             )
+        occupied = self.sink_frames + self.memory_frames + self.local_frames
+        if occupied != self.rope_train_frames:
+            raise ValueError(
+                "dyKV regions must exactly fill the trained RoPE range: "
+                f"sink({self.sink_frames}) + memory({self.memory_frames}) + "
+                f"local_including_current({self.local_frames}) != "
+                f"rope_train_frames({self.rope_train_frames})"
+            )
         if not 0.0 < self.compression_keep_ratio <= 1.0:
             raise ValueError("dyKV compression_keep_ratio must be in (0, 1]")
         if self.compression_mode not in {"none", "fixed_novelty", "yaw_fov"}:
@@ -65,23 +75,24 @@ class DyKVConfig:
             "none",
             "whole_chunks",
             "whole_chunks_and_latents",
+            "fixed_worldkv",
         }:
             raise ValueError(
                 "dyKV packing_mode must be none, whole_chunks, or "
-                "whole_chunks_and_latents"
+                "whole_chunks_and_latents, or fixed_worldkv"
+            )
+        if self.retrieval_frames <= 0 or self.retrieval_frames % chunk_frames:
+            raise ValueError(
+                "dyKV retrieval_frames must be positive and chunk-aligned"
+            )
+        if self.packing_mode == "none" and self.retrieval_frames > self.memory_frames:
+            raise ValueError(
+                "unpacked dyKV retrieval_frames cannot exceed memory_frames"
             )
         if self.retrieval_fov_source not in {"fixed", "intrinsics"}:
             raise ValueError("dyKV retrieval_fov_source must be fixed or intrinsics")
         if self.compression_fov_source not in {"fixed", "intrinsics"}:
             raise ValueError("dyKV compression_fov_source must be fixed or intrinsics")
-        occupied = self.sink_frames + self.memory_frames + self.local_frames
-        if occupied != self.rope_train_frames:
-            raise ValueError(
-                "dyKV regions must exactly fill the trained RoPE range: "
-                f"sink({self.sink_frames}) + memory({self.memory_frames}) + "
-                f"local_including_current({self.local_frames}) != "
-                f"rope_train_frames({self.rope_train_frames})"
-            )
         return self
 
 

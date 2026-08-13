@@ -9,7 +9,9 @@ import torch
 from .dykv_fov import deterministic_sphere_points, select_fov_blocks
 from .dykv_memory import DyKVBank, DyKVConfig
 from .dykv_packing import (
+    build_fixed_worldkv_retrieval_plan,
     build_packed_retrieval_plan,
+    materialize_fixed_worldkv_retrieval,
     materialize_packed_retrieval,
 )
 
@@ -88,7 +90,7 @@ class DyKVRuntime:
             candidates,
             current_viewmats=current_viewmats,
             current_Ks=current_Ks,
-            memory_frames=self.config.memory_frames,
+            memory_frames=self.config.retrieval_frames,
             probe_points=self.probe_points,
             horizontal_degrees=self.config.fov_horizontal_degrees,
             vertical_degrees=self.config.fov_vertical_degrees,
@@ -96,7 +98,23 @@ class DyKVRuntime:
             fov_source=self.config.retrieval_fov_source,
         )
         packing_plan = None
-        if self.config.packing_mode != "none":
+        if self.config.packing_mode == "fixed_worldkv":
+            packing_plan = build_fixed_worldkv_retrieval_plan(
+                bank,
+                selected,
+                frame_tokens=frame_tokens,
+                memory_frames=self.config.memory_frames,
+                sink_frames=self.config.sink_frames,
+                retrieval_frames=self.config.retrieval_frames,
+                keep_ratio=self.config.compression_keep_ratio,
+            )
+            payloads = materialize_fixed_worldkv_retrieval(
+                bank,
+                packing_plan,
+                target_device=target_device,
+                frame_tokens=frame_tokens,
+            )
+        elif self.config.packing_mode != "none":
             packing_plan = build_packed_retrieval_plan(
                 bank,
                 ranked_candidates,
@@ -168,10 +186,15 @@ class DyKVRuntime:
                 "packing_used_virtual_slots": diagnostics.get(
                     "packing_used_virtual_slots", 0
                 ),
+                "fixed_keep_ratio": diagnostics.get("fixed_keep_ratio"),
+                "fixed_retrieval_frames": diagnostics.get(
+                    "fixed_retrieval_frames"
+                ),
                 "packing_candidate_block_ids": [
                     bank.blocks[index].block_id
                     for index in (
-                        packing_plan.candidate_block_indices if packing_plan else ()
+                        getattr(packing_plan, "candidate_block_indices", ())
+                        if packing_plan else ()
                     )
                 ],
                 "seconds": time.perf_counter() - started,
@@ -186,6 +209,8 @@ class DyKVRuntime:
             "sink_frames": self.config.sink_frames,
             "compression_mode": self.config.compression_mode,
             "packing_mode": self.config.packing_mode,
+            "retrieval_frames": self.config.retrieval_frames,
+            "compression_keep_ratio": self.config.compression_keep_ratio,
             "retrieval_fov_source": self.config.retrieval_fov_source,
             "compression_fov_source": self.config.compression_fov_source,
             "branches": {branch: bank.summary() for branch, bank in self.banks.items()},

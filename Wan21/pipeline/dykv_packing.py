@@ -112,6 +112,32 @@ class PackedRetrievalPlan:
     candidate_block_indices: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class FixedWorldKVFramePlan:
+    block_index: int
+    frame_offset: int
+    source_frame_id: int
+    token_indices: torch.Tensor
+    virtual_slot_id: int
+    selection_kind: str
+
+    @property
+    def token_count(self) -> int:
+        return int(self.token_indices.numel())
+
+
+@dataclass(frozen=True)
+class FixedWorldKVRetrievalPlan:
+    frames: tuple[FixedWorldKVFramePlan, ...]
+    selected_blocks: tuple[int, ...]
+    retrieval_frames: int
+    keep_ratio: float
+    keep_tokens_per_non_anchor: int
+    token_budget: int
+    used_tokens: int
+    used_virtual_slots: int
+
+
 def _spatial_token_indices(
     columns: Sequence[int],
     *,
@@ -640,9 +666,225 @@ def materialize_packed_retrieval(
                 ],
                 "packing_budget_atoms": plan.budget_atoms,
                 "packing_used_atoms": plan.used_atoms,
+                "packing_atom_tokens": int(frame_tokens) // PACKING_ATOMS_PER_SLOT,
                 "packing_used_virtual_slots": plan.used_virtual_slots,
                 "raw_tokens": len(plan.frames) * int(frame_tokens),
                 "kept_tokens": int(packed_k.shape[1]),
+                "token_budget": plan.token_budget,
+            }
+        )
+    return payloads
+
+
+def _fixed_worldkv_indices(
+    block: MemoryBlock,
+    *,
+    frame_tokens: int,
+    keep_ratio: float,
+) -> tuple[torch.Tensor, ...]:
+    """Build a layer-shared anchor-plus-novelty mask for one whole chunk."""
+
+    layer0 = block.layers[0].k.detach().to(device="cpu")
+    expected = int(block.frame_count) * int(frame_tokens)
+    if layer0.ndim != 4 or layer0.shape[1] != expected:
+        raise ValueError("fixed WorldKV packing requires complete frame-aligned KV")
+    batch, _, heads, dim = layer0.shape
+    frames = layer0.reshape(batch, block.frame_count, frame_tokens, heads, dim)
+    anchor = frames[:, 0]
+    centroid = anchor.float().mean(dim=1)
+    centroid_norm = torch.linalg.vector_norm(centroid, dim=(-2, -1))
+    keep_tokens = max(1, int(math.ceil(float(keep_ratio) * int(frame_tokens))))
+    keep_tokens = min(int(frame_tokens), keep_tokens)
+    eps = torch.finfo(torch.float32).eps
+    output = [torch.arange(int(frame_tokens), dtype=torch.long)]
+    for frame_index in range(1, int(block.frame_count)):
+        values = frames[:, frame_index].float()
+        similarity = (values * centroid.unsqueeze(1)).sum(dim=(-2, -1))
+        similarity = similarity / (
+            torch.linalg.vector_norm(values, dim=(-2, -1))
+            * centroid_norm.unsqueeze(1)
+            + eps
+        )
+        score = similarity.mean(dim=0)
+        output.append(
+            score.topk(keep_tokens, largest=False).indices.sort().values.to(torch.long)
+        )
+    return tuple(output)
+
+
+def build_fixed_worldkv_retrieval_plan(
+    bank: DyKVBank,
+    selected_block_indices: Sequence[int],
+    *,
+    frame_tokens: int,
+    memory_frames: int,
+    sink_frames: int,
+    retrieval_frames: int,
+    keep_ratio: float,
+) -> FixedWorldKVRetrievalPlan:
+    """Pack minWM-back's fixed anchor+novelty cases into eight token slots.
+
+    Full anchor frames occupy dedicated slots.  Fixed-size non-anchor segments
+    are then packed first-fit into the remaining slots, allowing segments from
+    different source chunks to share a virtual time position.
+    """
+
+    if not 0.0 < float(keep_ratio) <= 1.0:
+        raise ValueError("fixed WorldKV keep_ratio must be in (0, 1]")
+    selected = tuple(int(index) for index in selected_block_indices)
+    selected = tuple(
+        sorted(selected, key=lambda index: bank.blocks[index].frame_start)
+    )
+    raw_frames = sum(int(bank.blocks[index].frame_count) for index in selected)
+    if raw_frames > int(retrieval_frames):
+        raise ValueError("fixed WorldKV selection exceeds its source-frame budget")
+    token_budget = int(memory_frames) * int(frame_tokens)
+    segment_specs = []
+    for block_index in selected:
+        block = bank.blocks[block_index]
+        indices_per_frame = _fixed_worldkv_indices(
+            block,
+            frame_tokens=frame_tokens,
+            keep_ratio=keep_ratio,
+        )
+        for frame_offset, indices in enumerate(indices_per_frame):
+            segment_specs.append(
+                (
+                    block_index,
+                    frame_offset,
+                    block.frame_start + frame_offset,
+                    indices,
+                    "anchor" if frame_offset == 0 else "novelty",
+                )
+            )
+
+    # Anchors must remain full, so reserve their bins first.  Novelty segments
+    # from different chunks may share the remaining virtual slots.
+    bins: list[dict] = []
+    anchors = [segment for segment in segment_specs if segment[4] == "anchor"]
+    novelty = [segment for segment in segment_specs if segment[4] == "novelty"]
+    for segment in anchors:
+        bins.append({"remaining": 0, "segments": [segment]})
+    for segment in sorted(novelty, key=lambda item: (-item[3].numel(), item[2])):
+        length = int(segment[3].numel())
+        for bin_item in bins:
+            if int(bin_item["remaining"]) >= length:
+                bin_item["remaining"] = int(bin_item["remaining"]) - length
+                bin_item["segments"].append(segment)
+                break
+        else:
+            if len(bins) >= int(memory_frames):
+                raise ValueError("fixed WorldKV payload exceeds retrieval token slots")
+            bins.append(
+                {
+                    "remaining": int(frame_tokens) - length,
+                    "segments": [segment],
+                }
+            )
+
+    frames = []
+    for bin_index, bin_item in enumerate(bins):
+        slot = int(sink_frames) + bin_index
+        for block_index, frame_offset, source_frame, indices, kind in sorted(
+            bin_item["segments"], key=lambda item: item[2]
+        ):
+            frames.append(
+                FixedWorldKVFramePlan(
+                    block_index=block_index,
+                    frame_offset=frame_offset,
+                    source_frame_id=source_frame,
+                    token_indices=indices,
+                    virtual_slot_id=slot,
+                    selection_kind=kind,
+                )
+            )
+    used_tokens = sum(frame.token_count for frame in frames)
+    if used_tokens > token_budget:
+        raise ValueError("fixed WorldKV payload exceeds retrieval token budget")
+    return FixedWorldKVRetrievalPlan(
+        frames=tuple(frames),
+        selected_blocks=selected,
+        retrieval_frames=int(retrieval_frames),
+        keep_ratio=float(keep_ratio),
+        keep_tokens_per_non_anchor=max(
+            1, int(math.ceil(float(keep_ratio) * int(frame_tokens)))
+        ),
+        token_budget=token_budget,
+        used_tokens=used_tokens,
+        used_virtual_slots=len(bins),
+    )
+
+
+def materialize_fixed_worldkv_retrieval(
+    bank: DyKVBank,
+    plan: FixedWorldKVRetrievalPlan,
+    *,
+    target_device: torch.device | str,
+    frame_tokens: int,
+) -> list[dict]:
+    if not plan.frames:
+        return []
+    layer_count = len(bank.blocks[plan.frames[0].block_index].layers)
+    if any(
+        len(bank.blocks[frame.block_index].layers) != layer_count
+        for frame in plan.frames
+    ):
+        raise RuntimeError("fixed WorldKV bank blocks have inconsistent layer counts")
+    device = torch.device(target_device)
+    payloads = []
+    frame_lengths = [frame.token_count for frame in plan.frames]
+    source_frames = [frame.source_frame_id for frame in plan.frames]
+    virtual_slots = [frame.virtual_slot_id for frame in plan.frames]
+    for layer_index in range(layer_count):
+        key_parts = []
+        value_parts = []
+        for frame in plan.frames:
+            block = bank.blocks[frame.block_index]
+            source_start = frame.frame_offset * int(frame_tokens)
+            indices = frame.token_indices.to(device=device) + source_start
+            key_parts.append(
+                block.layers[layer_index].k.to(device=device).index_select(1, indices)
+            )
+            value_parts.append(
+                block.layers[layer_index].v.to(device=device).index_select(1, indices)
+            )
+        packed_k = torch.cat(key_parts, dim=1)
+        packed_v = torch.cat(value_parts, dim=1)
+        if int(packed_k.shape[1]) != plan.used_tokens:
+            raise RuntimeError("fixed WorldKV materialization differs from its plan")
+        payloads.append(
+            {
+                "k": packed_k,
+                "v": packed_v,
+                "source_frame_ids": source_frames,
+                "frame_token_lengths": frame_lengths,
+                "virtual_slot_ids": virtual_slots,
+                "src_frame_ids": [
+                    bank.blocks[index].frame_start for index in plan.selected_blocks
+                ],
+                "chunk_frame_counts": [
+                    bank.blocks[index].frame_count for index in plan.selected_blocks
+                ],
+                "chunk_token_lengths": [
+                    int(frame_tokens)
+                    + (bank.blocks[index].frame_count - 1)
+                    * plan.keep_tokens_per_non_anchor
+                    for index in plan.selected_blocks
+                ],
+                "parent_block_ids": [
+                    bank.blocks[frame.block_index].block_id for frame in plan.frames
+                ],
+                "selection_kinds": [frame.selection_kind for frame in plan.frames],
+                "compression_modes": ["fixed_worldkv_anchor_novelty"] * len(plan.frames),
+                "kept_tokens_per_frame": frame_lengths,
+                "fixed_keep_ratio": plan.keep_ratio,
+                "fixed_retrieval_frames": plan.retrieval_frames,
+                "packing_used_virtual_slots": plan.used_virtual_slots,
+                "raw_tokens": sum(
+                    bank.blocks[index].frame_count for index in plan.selected_blocks
+                )
+                * int(frame_tokens),
+                "kept_tokens": plan.used_tokens,
                 "token_budget": plan.token_budget,
             }
         )

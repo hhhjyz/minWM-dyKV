@@ -170,6 +170,43 @@ class DyKVRuntimeTest(unittest.TestCase):
         self.assertEqual(event["packing_mode"], "whole_chunks")
         self.assertEqual(event["packing_used_atoms"], payload["packing_used_atoms"])
 
+    def test_fixed_worldkv_runtime_retrieves_sixteen_frames_in_eight_frame_budget(self):
+        config = memory.DyKVConfig(
+            enabled=True,
+            fov_samples=2048,
+            retrieval_frames=16,
+            compression_keep_ratio=1.0 / 3.0,
+            compression_mode="fixed_novelty",
+            packing_mode="fixed_worldkv",
+        )
+        runtime = runtime_module.DyKVRuntime(config, chunk_frames=4)
+        poses = torch.stack([_yaw_w2c(0.0)] * 4).unsqueeze(0)
+        for start in range(0, 36, 4):
+            runtime.archive(
+                "main",
+                [_cache(start, tokens=48)],
+                frame_start=start,
+                frame_count=4,
+                frame_tokens=12,
+                viewmats=poses,
+                Ks=_intrinsics(),
+            )
+        payload = runtime.retrieve(
+            "main",
+            current_frame=36,
+            current_viewmats=poses,
+            current_Ks=_intrinsics(),
+            frame_tokens=12,
+            target_device="cpu",
+        )[0]
+
+        self.assertEqual(len(payload["source_frame_ids"]), 16)
+        self.assertEqual(payload["k"].shape[1], 8 * 12)
+        self.assertEqual(payload["packing_used_virtual_slots"], 8)
+        event = runtime.summary()["events"][0]
+        self.assertEqual(event["fixed_retrieval_frames"], 16)
+        self.assertAlmostEqual(event["fixed_keep_ratio"], 1.0 / 3.0)
+
 
 if __name__ == "__main__":
     unittest.main()

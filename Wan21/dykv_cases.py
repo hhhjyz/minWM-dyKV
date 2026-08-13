@@ -24,6 +24,8 @@ class DyKVCase:
     compression_fov_source: str
     description: str
     packing_mode: str = "none"
+    retrieval_frames: int = 8
+    compression_keep_ratio: float = 0.5
     sink_mode: str = FIXED_SINK_MODE
     sink_frames: int = FIXED_SINK_FRAMES
 
@@ -102,6 +104,39 @@ DYKV_CASES = {
             "intrinsics",
             "固定档位完整 chunk 装箱，并用单 latent 补齐尾部（E2）",
             packing_mode="whole_chunks_and_latents",
+        ),
+        DyKVCase(
+            "retr8_compression_r050",
+            True,
+            "fixed_novelty",
+            "intrinsics",
+            "intrinsics",
+            "minWM-back B：检索 8 帧，每 chunk 保留完整 anchor + 3×50%",
+            packing_mode="fixed_worldkv",
+            retrieval_frames=8,
+            compression_keep_ratio=0.5,
+        ),
+        DyKVCase(
+            "retr12_compression_r050",
+            True,
+            "fixed_novelty",
+            "intrinsics",
+            "intrinsics",
+            "minWM-back C：检索 12 帧，每 chunk 保留完整 anchor + 3×50%",
+            packing_mode="fixed_worldkv",
+            retrieval_frames=12,
+            compression_keep_ratio=0.5,
+        ),
+        DyKVCase(
+            "retr16_compression_r033",
+            True,
+            "fixed_novelty",
+            "intrinsics",
+            "intrinsics",
+            "minWM-back D：检索 16 帧，每 chunk 保留完整 anchor + 3×1/3",
+            packing_mode="fixed_worldkv",
+            retrieval_frames=16,
+            compression_keep_ratio=1.0 / 3.0,
         ),
     )
 }

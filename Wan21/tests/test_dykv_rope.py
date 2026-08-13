@@ -159,6 +159,7 @@ class DyKVRoPETest(unittest.TestCase):
             "source_frame_ids": [20],
             "frame_token_lengths": [3],
             "virtual_slot_ids": [4],
+            "packing_atom_tokens": 2,
         }
         with self.assertRaisesRegex(ValueError, "atom-aligned"):
             compose_tri_region(

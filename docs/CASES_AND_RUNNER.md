@@ -5,10 +5,10 @@
 所有可直接运行的对照都注册在 `Wan21/dykv_cases.py`。公开接口只增加一个枚举参数
 `--dykv-case`，每个 case 一次性确定压缩方式、检索 FOV 来源和裁剪 FOV 来源，不再暴露
 彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink：baseline 使用
-`fixed sink 4 + rolling local 16`，七个 dyKV case 使用连续的
+`fixed sink 4 + rolling local 16`，十个 dyKV case 使用连续的
 `fixed sink 4 + retrieval 8 + local 8`。
 
-## 2. 当前八个 Case
+## 2. 当前十一个 Case
 
 | Case | Sink | dyKV | 检索 FOV | 检索时压缩 | 裁剪 FOV | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -20,11 +20,17 @@
 | `yaw_intrinsics` | 固定 4 | 开启 | 相机 `K` | yaw 空间列裁剪 | 相机 `K` | F2，默认完整方法 |
 | `packed_chunks` | 固定 4 | 开启 | 相机 `K` | `{1,1/2,1/4}` 固定档位 | 相机 `K` | E1，32 原子预算内扩充完整 chunk |
 | `packed_chunks_latent` | 固定 4 | 开启 | 相机 `K` | 固定档位 + 单 latent 尾部 | 相机 `K` | E2，完整 chunk 后继续补齐余量 |
+| `retr8_compression_r050` | 固定 4 | 开启 | 相机 `K` | 2 chunk，anchor + `r=1/2` | — | minWM-back B：8 源帧压到 5 帧容量 |
+| `retr12_compression_r050` | 固定 4 | 开启 | 相机 `K` | 3 chunk，anchor + `r=1/2` | — | minWM-back C：12 源帧压到 7.5 帧容量 |
+| `retr16_compression_r033` | 固定 4 | 开启 | 相机 `K` | 4 chunk，anchor + `r=1/3` | — | minWM-back D：16 源帧压到 8 帧容量 |
 
 `baseline` 必须不带 `--dykv`；其余 case 通过 `--dykv --dykv-case NAME` 启用。当前 minWM
 默认归一化内参对应约 `89.424°×58.225°`，因此 F0 与 F2 是有效且差异明显的消融。
 当历史归档或当前 query 缺少合法 `K` 时，内参检索回退到固定 `60°×35°`；动态裁剪因
 缺失几何信息回退到固定新颖性压缩。
+
+固定 WorldKV A--D 的预算公式、与旧实现的差异及运行方式见
+[`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)。
 
 可随时列出注册表：
 
@@ -35,7 +41,7 @@ LIST_CASES=1 bash Wan21/scripts/inference/run_dykv_cases.sh
 
 ## 3. 普通 Prompt 一键运行
 
-默认顺序运行全部八组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
+默认顺序运行全部十一组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
 
 ```bash
 conda activate minwm-fa

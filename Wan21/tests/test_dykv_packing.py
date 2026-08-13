@@ -140,6 +140,44 @@ class DyKVPackingTest(unittest.TestCase):
             {"full_chunk", "tail_latent"},
         )
 
+    def test_minwm_back_fixed_cases_match_expected_physical_budgets(self):
+        bank = memory.DyKVBank(device="cpu")
+        poses = torch.stack([_yaw_w2c(0)] * 4).unsqueeze(0)
+        for block_index in range(4):
+            bank.archive_clean_block(
+                [_cache(block_index, tokens=48)],
+                frame_start=block_index * 4,
+                frame_count=4,
+                frame_tokens=12,
+                viewmats=poses,
+            )
+        cases = (
+            ((0, 1), 8, 0.5, 60, 5),
+            ((0, 1, 2), 12, 0.5, 90, 8),
+            ((0, 1, 2, 3), 16, 1.0 / 3.0, 96, 8),
+        )
+        for selected, retrieval_frames, keep_ratio, tokens, slots in cases:
+            with self.subTest(retrieval_frames=retrieval_frames, keep_ratio=keep_ratio):
+                plan = packing.build_fixed_worldkv_retrieval_plan(
+                    bank,
+                    selected,
+                    frame_tokens=12,
+                    memory_frames=8,
+                    sink_frames=4,
+                    retrieval_frames=retrieval_frames,
+                    keep_ratio=keep_ratio,
+                )
+                payload = packing.materialize_fixed_worldkv_retrieval(
+                    bank, plan, target_device="cpu", frame_tokens=12
+                )[0]
+                self.assertEqual(plan.used_tokens, tokens)
+                self.assertEqual(plan.used_virtual_slots, slots)
+                self.assertEqual(payload["k"].shape[1], tokens)
+                self.assertEqual(len(payload["source_frame_ids"]), retrieval_frames)
+                self.assertEqual(
+                    sum(payload["frame_token_lengths"]), payload["k"].shape[1]
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

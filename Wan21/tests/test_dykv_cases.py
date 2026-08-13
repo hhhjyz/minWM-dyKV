@@ -25,6 +25,9 @@ class DyKVCasesTest(unittest.TestCase):
                 "yaw_intrinsics",
                 "packed_chunks",
                 "packed_chunks_latent",
+                "retr8_compression_r050",
+                "retr12_compression_r050",
+                "retr16_compression_r033",
             ),
         )
 
@@ -41,6 +44,19 @@ class DyKVCasesTest(unittest.TestCase):
             cases.get_dykv_case("packed_chunks").packing_mode,
             "whole_chunks",
         )
+
+    def test_minwm_back_fixed_budget_cases_are_registered(self):
+        expected = {
+            "retr8_compression_r050": (8, 0.5),
+            "retr12_compression_r050": (12, 0.5),
+            "retr16_compression_r033": (16, 1.0 / 3.0),
+        }
+        for name, (retrieval_frames, keep_ratio) in expected.items():
+            with self.subTest(case=name):
+                preset = cases.get_dykv_case(name)
+                self.assertEqual(preset.packing_mode, "fixed_worldkv")
+                self.assertEqual(preset.retrieval_frames, retrieval_frames)
+                self.assertAlmostEqual(preset.compression_keep_ratio, keep_ratio)
         self.assertEqual(
             cases.get_dykv_case("packed_chunks_latent").packing_mode,
             "whole_chunks_and_latents",

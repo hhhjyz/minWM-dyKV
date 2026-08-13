@@ -60,6 +60,19 @@ class DyKVMemoryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "packing_mode"):
             config.validate(chunk_frames=4)
 
+    def test_fixed_worldkv_allows_source_coverage_above_physical_memory(self):
+        config = DyKVConfig(
+            enabled=True,
+            retrieval_frames=16,
+            packing_mode="fixed_worldkv",
+        )
+        self.assertIs(config.validate(chunk_frames=4), config)
+
+    def test_unpacked_source_coverage_cannot_exceed_physical_memory(self):
+        config = DyKVConfig(enabled=True, retrieval_frames=12)
+        with self.assertRaisesRegex(ValueError, "retrieval_frames"):
+            config.validate(chunk_frames=4)
+
     def test_bank_archives_latest_clean_tokens_and_only_exposes_evicted_blocks(self):
         values = torch.arange(12, dtype=torch.float32).reshape(1, 12, 1, 1)
         bank = DyKVBank()

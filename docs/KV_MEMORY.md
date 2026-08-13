@@ -19,6 +19,9 @@
 `8×1560` token 上限内选择更多完整 chunk；`packed_chunks_latent` 还会用未选中块中的
 单个 latent 补齐剩余容量。CPU bank 的存储方式不变。
 
+固定 WorldKV 对照则先按 case 选择 8/12/16 个源 latent，再保留每个 chunk 的完整 anchor
+和非 anchor 的固定比例新颖性 token。它们同样只在 materialize 阶段压缩。
+
 记忆库始终保存未压缩的干净 K/V。这样检索选择可逆，也不会在从未被检索的历史内容上
 浪费压缩时间或损失信息。
 
@@ -57,6 +60,10 @@ retrieval region 总计 32 个原子。完整四帧 chunk 优先通过 0/1 背�
 每个裁剪后的源 latent 都显式记录源帧、token 长度和 4--11 范围内的虚拟槽位。RoPE
 只按 segment 重映射时间通道；空间通道保持不变。一个虚拟槽最多容纳 1560 token，因此
 可以容纳 1 个 full、2 个 half 或 4 个 quarter 源 latent，而不会侵入 local 12--19。
+
+`retr8_compression_r050`、`retr12_compression_r050` 和 `retr16_compression_r033` 不受
+四分之一档位限制，而是按实际 segment token 数装箱；完整 anchor 占一槽，固定比例的
+非 anchor segment 可跨 chunk 共享槽。三者的最大物理容量仍是 8 latent。
 
 ## 公开配置
 
