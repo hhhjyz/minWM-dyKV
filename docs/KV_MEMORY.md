@@ -54,3 +54,16 @@ cannot fit in the trained RoPE range.
 Unit tests cover block-tail capture, eviction eligibility, anchor preservation,
 novelty selection, chronological payload order, and the guarantee that retrieval
 compression does not mutate the lossless bank.
+
+## Running
+
+Use the ordinary causal camera runner with the complete preset enabled:
+
+```bash
+DYKV=1 DYKV_MEMORY_FRAMES=8 \
+  bash Wan21/scripts/inference/run_infer_causal_camera.sh
+```
+
+The output folder contains `dykv_summaries.jsonl`, with one record per prompt. Each
+record includes bank byte counts, selected block IDs, source frame starts,
+compressed token counts, and retrieval wall time.

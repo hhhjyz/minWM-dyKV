@@ -242,6 +242,10 @@ class DyKVBank:
         if not selected:
             return []
         selected.sort(key=lambda block: block.frame_start)
+        if any(block.frame_count != int(chunk_frames) for block in selected):
+            raise ValueError(
+                "retrieval-time compression requires complete model-sized chunks"
+            )
         layer_count = len(selected[0].layers)
         if any(len(block.layers) != layer_count for block in selected):
             raise RuntimeError("dyKV bank blocks have inconsistent layer counts")

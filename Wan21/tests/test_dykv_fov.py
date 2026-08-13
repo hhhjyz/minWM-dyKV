@@ -49,7 +49,7 @@ class DyKVFOVTest(unittest.TestCase):
             SimpleNamespace(frame_start=8, frame_count=4, viewmats=torch.stack([_w2c(yaw_degrees=180)] * 4).unsqueeze(0)),
             SimpleNamespace(frame_start=12, frame_count=4, viewmats=torch.stack([_w2c(x=0.2)] * 4).unsqueeze(0)),
         ]
-        selected, distances = dykv_fov.select_fov_blocks(
+        selected, ranked, distances = dykv_fov.select_fov_blocks(
             SimpleNamespace(blocks=blocks),
             [0, 1, 2],
             current_viewmats=current,
@@ -57,6 +57,7 @@ class DyKVFOVTest(unittest.TestCase):
             probe_points=self.points,
         )
         self.assertEqual(selected, [0, 2])
+        self.assertEqual(ranked[:2], [0, 2])
         self.assertEqual(len(distances), 3)
         self.assertLess(distances[0], distances[-1])
 

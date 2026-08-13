@@ -166,7 +166,7 @@ def select_fov_blocks(
     horizontal_degrees: float = 60.0,
     vertical_degrees: float = 35.0,
     radius: float = 8.0,
-) -> tuple[list[int], list[float]]:
+) -> tuple[list[int], list[int], list[float]]:
     """Select the closest complete historical blocks under a frame budget."""
 
     scored: list[tuple[int, float]] = []
@@ -196,4 +196,8 @@ def select_fov_blocks(
         if used_frames == int(memory_frames):
             break
     selected.sort(key=lambda index: bank.blocks[index].frame_start)
-    return selected, [distance for _, distance in scored]
+    return (
+        selected,
+        [index for index, _ in scored],
+        [distance for _, distance in scored],
+    )

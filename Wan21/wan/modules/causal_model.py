@@ -12,6 +12,7 @@ from torch.nn.attention.flex_attention import create_block_mask, flex_attention
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from torch.nn.attention.flex_attention import BlockMask
 from diffusers.models.modeling_utils import ModelMixin
+from .dykv_rope import TriRegionSpec, compose_tri_region, rebase_query
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
@@ -103,6 +104,10 @@ class CausalWanSelfAttention(nn.Module):
                  num_heads,
                  local_attn_size=-1,
                  sink_size=0,
+                 dykv_enabled=False,
+                 dykv_memory_frames=8,
+                 dykv_local_frames=4,
+                 dykv_rope_train_frames=20,
                  qk_norm=True,
                  eps=1e-6):
         assert dim % num_heads == 0
@@ -112,6 +117,13 @@ class CausalWanSelfAttention(nn.Module):
         self.head_dim = dim // num_heads
         self.local_attn_size = local_attn_size
         self.sink_size = sink_size
+        self.dykv_enabled = bool(dykv_enabled)
+        self.dykv_spec = TriRegionSpec(
+            sink_frames=int(sink_size),
+            memory_frames=int(dykv_memory_frames),
+            local_frames=int(dykv_local_frames),
+            rope_train_frames=int(dykv_rope_train_frames),
+        )
         self.qk_norm = qk_norm
         self.eps = eps
         self.max_attention_size = 31200 if local_attn_size == -1 else local_attn_size * 1560
@@ -137,6 +149,7 @@ class CausalWanSelfAttention(nn.Module):
         viewmats=None,
         Ks=None,
         prope_kv_cache=None,
+        retrieval_kv=None,
     ):
         r"""
         Args:
@@ -334,6 +347,20 @@ class CausalWanSelfAttention(nn.Module):
             roped_key = causal_rope_apply(
                 k, grid_sizes, freqs, start_frame=current_start_frame).type_as(v)
 
+            dykv_active = (
+                self.dykv_enabled
+                and current_start_frame >= self.dykv_spec.rope_train_frames
+            )
+            query_frames = roped_query.shape[1] // frame_seqlen
+            if dykv_active:
+                roped_query = rebase_query(
+                    roped_query,
+                    freqs=freqs,
+                    source_start_frame=current_start_frame,
+                    query_frames=query_frames,
+                    spec=self.dykv_spec,
+                )
+
             current_end = current_start + roped_query.shape[1]
             sink_tokens = self.sink_size * frame_seqlen
             # If we are using local attention and the current KV cache size is larger than the local attention size, we need to truncate the KV cache
@@ -362,11 +389,23 @@ class CausalWanSelfAttention(nn.Module):
                 local_start_index = local_end_index - num_new_tokens
                 kv_cache["k"][:, local_start_index:local_end_index] = roped_key
                 kv_cache["v"][:, local_start_index:local_end_index] = v
-            x = attention(
-                roped_query,
-                kv_cache["k"][:, max(0, local_end_index - self.max_attention_size):local_end_index],
-                kv_cache["v"][:, max(0, local_end_index - self.max_attention_size):local_end_index]
-            )
+            if dykv_active:
+                attention_k, attention_v = compose_tri_region(
+                    kv_cache,
+                    local_end_index=local_end_index,
+                    frame_tokens=frame_seqlen,
+                    current_end_frame=current_end // frame_seqlen,
+                    query_frames=query_frames,
+                    freqs=freqs,
+                    retrieval=retrieval_kv,
+                    spec=self.dykv_spec,
+                    dtype=roped_query.dtype,
+                    device=roped_query.device,
+                )
+            else:
+                attention_k = kv_cache["k"][:, max(0, local_end_index - self.max_attention_size):local_end_index]
+                attention_v = kv_cache["v"][:, max(0, local_end_index - self.max_attention_size):local_end_index]
+            x = attention(roped_query, attention_k, attention_v)
             kv_cache["global_end_index"].fill_(current_end)
             kv_cache["local_end_index"].fill_(local_end_index)
 
@@ -443,6 +482,10 @@ class CausalWanAttentionBlock(nn.Module):
                  num_heads,
                  local_attn_size=-1,
                  sink_size=0,
+                 dykv_enabled=False,
+                 dykv_memory_frames=8,
+                 dykv_local_frames=4,
+                 dykv_rope_train_frames=20,
                  qk_norm=True,
                  cross_attn_norm=False,
                  eps=1e-6):
@@ -457,7 +500,18 @@ class CausalWanAttentionBlock(nn.Module):
 
         # layers
         self.norm1 = WanLayerNorm(dim, eps)
-        self.self_attn = CausalWanSelfAttention(dim, num_heads, local_attn_size, sink_size, qk_norm, eps)
+        self.self_attn = CausalWanSelfAttention(
+            dim,
+            num_heads,
+            local_attn_size=local_attn_size,
+            sink_size=sink_size,
+            dykv_enabled=dykv_enabled,
+            dykv_memory_frames=dykv_memory_frames,
+            dykv_local_frames=dykv_local_frames,
+            dykv_rope_train_frames=dykv_rope_train_frames,
+            qk_norm=qk_norm,
+            eps=eps,
+        )
         self.norm3 = WanLayerNorm(
             dim, eps,
             elementwise_affine=True) if cross_attn_norm else nn.Identity()
@@ -490,7 +544,8 @@ class CausalWanAttentionBlock(nn.Module):
         cache_start=None,
         viewmats=None,
         Ks=None,
-        prope_kv_cache=None
+        prope_kv_cache=None,
+        retrieval_kv=None,
     ):
         r"""
         Args:
@@ -513,7 +568,8 @@ class CausalWanAttentionBlock(nn.Module):
                 self.norm1(x) * (1 + e[1].squeeze(2)) + e[0].squeeze(2),
                 seq_lens, grid_sizes,
                 freqs, block_mask, kv_cache, current_start, cache_start,
-                viewmats=viewmats, Ks=Ks, prope_kv_cache=prope_kv_cache)
+                viewmats=viewmats, Ks=Ks, prope_kv_cache=prope_kv_cache,
+                retrieval_kv=retrieval_kv)
             x = x + y * e[2].squeeze(2)
 
             # cross-attention & ffn function
@@ -534,7 +590,8 @@ class CausalWanAttentionBlock(nn.Module):
                 (self.norm1(x).unflatten(dim=1, sizes=(num_frames, frame_seqlen)) * (1 + e[1]) + e[0]).flatten(1, 2),
                 seq_lens, grid_sizes,
                 freqs, block_mask, kv_cache, current_start, cache_start,
-                viewmats=viewmats, Ks=Ks, prope_kv_cache=prope_kv_cache)
+                viewmats=viewmats, Ks=Ks, prope_kv_cache=prope_kv_cache,
+                retrieval_kv=retrieval_kv)
 
             # with amp.autocast(dtype=torch.float32):
             x = x + (y.unflatten(dim=1, sizes=(num_frames, frame_seqlen)) * e[2]).flatten(1, 2)
@@ -616,6 +673,10 @@ class CausalWanModel(ModelMixin, ConfigMixin):
                  num_layers=32,
                  local_attn_size=-1,
                  sink_size=0,
+                 dykv_enabled=False,
+                 dykv_memory_frames=8,
+                 dykv_local_frames=4,
+                 dykv_rope_train_frames=20,
                  qk_norm=True,
                  cross_attn_norm=True,
                  eps=1e-6):
@@ -673,6 +734,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
         self.num_heads = num_heads
         self.num_layers = num_layers
         self.local_attn_size = local_attn_size
+        self.dykv_enabled = bool(dykv_enabled)
         self.qk_norm = qk_norm
         self.cross_attn_norm = cross_attn_norm
         self.eps = eps
@@ -692,8 +754,21 @@ class CausalWanModel(ModelMixin, ConfigMixin):
         # blocks
         cross_attn_type = 't2v_cross_attn' if model_type == 't2v' else 'i2v_cross_attn'
         self.blocks = nn.ModuleList([
-            CausalWanAttentionBlock(cross_attn_type, dim, ffn_dim, num_heads,
-                                    local_attn_size, sink_size, qk_norm, cross_attn_norm, eps)
+            CausalWanAttentionBlock(
+                cross_attn_type,
+                dim,
+                ffn_dim,
+                num_heads,
+                local_attn_size=local_attn_size,
+                sink_size=sink_size,
+                dykv_enabled=dykv_enabled,
+                dykv_memory_frames=dykv_memory_frames,
+                dykv_local_frames=dykv_local_frames,
+                dykv_rope_train_frames=dykv_rope_train_frames,
+                qk_norm=qk_norm,
+                cross_attn_norm=cross_attn_norm,
+                eps=eps,
+            )
             for _ in range(num_layers)
         ])
 
@@ -949,7 +1024,8 @@ class CausalWanModel(ModelMixin, ConfigMixin):
         cache_start: int = 0,
         viewmats=None,
         Ks=None,
-        prope_kv_cache=None
+        prope_kv_cache=None,
+        retrieval_kv=None,
     ):
         r"""
         Run the diffusion model with kv caching.
@@ -1091,7 +1167,8 @@ class CausalWanModel(ModelMixin, ConfigMixin):
                         "kv_cache": kv_cache[block_index],
                         "current_start": current_start,
                         "cache_start": cache_start,
-                        "prope_kv_cache": prope_kv_cache[block_index] if prope_kv_cache is not None else None
+                        "prope_kv_cache": prope_kv_cache[block_index] if prope_kv_cache is not None else None,
+                        "retrieval_kv": retrieval_kv[block_index] if retrieval_kv else None,
                     }
                 )
                 x = torch.utils.checkpoint.checkpoint(
@@ -1106,7 +1183,8 @@ class CausalWanModel(ModelMixin, ConfigMixin):
                         "crossattn_cache": crossattn_cache[block_index],
                         "current_start": current_start,
                         "cache_start": cache_start,
-                        "prope_kv_cache": prope_kv_cache[block_index] if prope_kv_cache is not None else None
+                        "prope_kv_cache": prope_kv_cache[block_index] if prope_kv_cache is not None else None,
+                        "retrieval_kv": retrieval_kv[block_index] if retrieval_kv else None,
                     }
                 )
                 x = block(x, **kwargs)

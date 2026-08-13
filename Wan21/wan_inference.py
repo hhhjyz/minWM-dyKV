@@ -29,6 +29,8 @@ parser.add_argument("--i2v", action="store_true", help="Whether to perform I2V (
 parser.add_argument("--sp_size", type=int, default=1, help="Sequence parallel size (1=disabled)")
 parser.add_argument("--trajectory", type=str, default=None, help="Camera trajectory string (e.g., 'w*19' for camera control)")
 parser.add_argument("--trajectory_path", type=str, default=None, help="Path to trajectory file (one trajectory string per line, aligned with data_path)")
+parser.add_argument("--dykv", action="store_true", help="Enable the complete dyKV long-horizon memory preset")
+parser.add_argument("--dykv-memory-frames", type=int, default=8, help="Raw latent-frame budget for retrieved dyKV memory")
 args = parser.parse_args()
 
 # Initialize distributed inference
@@ -78,6 +80,25 @@ torch.set_grad_enabled(False)
 config = OmegaConf.load(args.config_path)
 default_config = OmegaConf.load("Wan21/configs/default_config.yaml")
 config = OmegaConf.merge(default_config, config)
+
+if args.dykv:
+    chunk_frames = int(config.get("num_frame_per_block", 1))
+    if chunk_frames != 4:
+        raise ValueError("dyKV currently targets the four-frame causal minWM checkpoint")
+    if args.dykv_memory_frames <= 0 or args.dykv_memory_frames % chunk_frames:
+        raise ValueError("--dykv-memory-frames must be a positive multiple of 4")
+    config.dykv_enabled = True
+    config.dykv_memory_frames = int(args.dykv_memory_frames)
+    # The live cache holds sink + recent + current. Retrieved K/V lives in the
+    # separate CPU bank and is materialized directly into the attention window.
+    config.model_kwargs.sink_size = 1
+    config.model_kwargs.local_attn_size = 1 + 4 + chunk_frames
+    config.model_kwargs.dykv_enabled = True
+    config.model_kwargs.dykv_memory_frames = int(args.dykv_memory_frames)
+    config.model_kwargs.dykv_local_frames = 4
+    config.model_kwargs.dykv_rope_train_frames = 20
+else:
+    config.dykv_enabled = False
 
 # Import pipeline AFTER distributed init so causal_model.py sees CleanCode SP infra
 from pipeline import (
@@ -159,6 +180,11 @@ dataloader = DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=0, d
 # Create output directory (only on main process to avoid race conditions)
 if local_rank == 0:
     os.makedirs(args.output_folder, exist_ok=True)
+    output_manifest_path = os.path.join(args.output_folder, "generation_manifest.jsonl")
+    open(output_manifest_path, "w", encoding="utf-8").close()
+    dykv_events_path = os.path.join(args.output_folder, "dykv_summaries.jsonl")
+    if args.dykv:
+        open(dykv_events_path, "w", encoding="utf-8").close()
 
 if dist.is_initialized():
     dist.barrier()
@@ -191,6 +217,20 @@ def encode(self, videos: torch.Tensor) -> torch.Tensor:
 chunk0_latencies = []
 
 
+def record_generation(prompt_index, prompt, trajectory, output_path, status):
+    if local_rank != 0:
+        return
+    row = {
+        "prompt_index": int(prompt_index),
+        "prompt": prompt,
+        "trajectory": trajectory or "",
+        "output_path": os.path.abspath(output_path),
+        "status": status,
+    }
+    with open(output_manifest_path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
 for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
     idx = batch_data['idx'].item()
 
@@ -201,15 +241,38 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
 
     all_video = []
     num_generated_frames = 0  # Number of generated (latent) frames
-    
-    
+    prompt = batch['prompts'][0]
+
+    # Resolve camera and the final output name before checking resumable output.
+    viewmats = None
+    Ks = None
+    traj_str = None
+    if trajectory_list:
+        traj_str = trajectory_list[idx]
+    elif args.trajectory:
+        traj_str = args.trajectory
+    if traj_str:
+        import numpy as np
+        viewmats_np = parse_trajectory(traj_str)
+        if len(viewmats_np) != args.num_output_frames:
+            raise ValueError(
+                f"trajectory for prompt {idx} has {len(viewmats_np)} poses, "
+                f"but --num_output_frames={args.num_output_frames}"
+            )
+        fx, fy, cx, cy = 0.5, 0.5, 0.5, 0.5
+        Ks_np = np.array([[[fx, 0, cx], [0, fy, cy], [0, 0, 1]]] * len(viewmats_np), dtype=np.float32)
+        viewmats = torch.from_numpy(viewmats_np).unsqueeze(0).to(device=device, dtype=torch.bfloat16)
+        Ks = torch.from_numpy(Ks_np).unsqueeze(0).to(device=device, dtype=torch.bfloat16)
+    traj_suffix = "_" + traj_str.replace("*", "").replace(",", "") if traj_str else ""
+    safe_prompt = prompt[:100].replace("/", "_").replace("\\", "_")
+    output_path = os.path.join(args.output_folder, f'{safe_prompt}{traj_suffix}.mp4')
+
     if args.i2v:
         assert config.num_frame_per_block == 1, "Current I2V only supports the frame-wise model."
         # For image-to-video, batch contains image and caption
-        prompt = batch['prompts'][0]  # Get caption from batch
-        output_path = os.path.join(args.output_folder, f'{prompt[:100]}.mp4')
         if os.path.exists(output_path):
             print('Video has been generated. Pass!')
+            record_generation(idx, prompt, traj_str, output_path, "skipped_exists")
             continue
         # Process the image
         image = batch['image'].squeeze(0).unsqueeze(0).unsqueeze(2).to(device=device, dtype=torch.bfloat16)
@@ -222,10 +285,9 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
         )
     else:
         # For text-to-video, batch is just the text prompt
-        prompt = batch['prompts'][0]
-        output_path = os.path.join(args.output_folder, f'{prompt[:100]}.mp4')
         if os.path.exists(output_path):
             print('Video has been generated. Pass!')
+            record_generation(idx, prompt, traj_str, output_path, "skipped_exists")
             continue
         extended_prompt = batch['extended_prompts'][0] if 'extended_prompts' in batch else None
         if extended_prompt is not None:
@@ -238,23 +300,6 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
             [1, args.num_output_frames, 16, 60, 104], device=device, dtype=torch.bfloat16
         )
 
-    # Parse camera trajectory if provided
-    viewmats = None
-    Ks = None
-    traj_str = None
-    if trajectory_list:
-        traj_str = trajectory_list[idx]
-    elif args.trajectory:
-        traj_str = args.trajectory
-    if traj_str:
-        import numpy as np
-        viewmats_np = parse_trajectory(traj_str)
-        # Default intrinsics (normalized)
-        fx, fy, cx, cy = 0.5, 0.5, 0.5, 0.5
-        Ks_np = np.array([[[fx, 0, cx], [0, fy, cy], [0, 0, 1]]] * len(viewmats_np), dtype=np.float32)
-        viewmats = torch.from_numpy(viewmats_np).unsqueeze(0).to(device=device, dtype=torch.bfloat16)
-        Ks = torch.from_numpy(Ks_np).unsqueeze(0).to(device=device, dtype=torch.bfloat16)
-
     # Generate frames
     video, latents = pipeline.inference(
         noise=sampled_noise,
@@ -264,6 +309,15 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
         viewmats=viewmats,
         Ks=Ks
     )
+    if local_rank == 0 and args.dykv:
+        dykv_record = {
+            "prompt_index": int(idx),
+            "prompt": prompt,
+            "trajectory": traj_str or "",
+            "summary": getattr(pipeline, "last_dykv_summary", {}),
+        }
+        with open(dykv_events_path, "a", encoding="utf-8") as _f:
+            _f.write(json.dumps(dykv_record, ensure_ascii=False) + "\n")
 
     # Record latency on rank 0; first prompt is warmup → None.
     # All pipelines stop the timer before VAE decode (see pipeline.last_chunk0_latency).
@@ -285,10 +339,9 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
     # Clear VAE cache
     pipeline.vae.model.clear_cache()
 
-    traj_suffix = "_" + traj_str.replace("*", "").replace(",", "") if traj_str else ""
-    output_path = os.path.join(args.output_folder, f'{prompt[:100]}{traj_suffix}.mp4')
     if not (args.sp_size > 1 and local_rank != 0):
         write_video(output_path, video[0], fps=16)
+        record_generation(idx, prompt, traj_str, output_path, "generated")
     if dist.is_initialized():
         dist.barrier()
 

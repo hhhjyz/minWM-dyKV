@@ -45,3 +45,7 @@ to its assigned virtual origin.
 The implementation is based on the prior minWM tri-region prototype and
 Anchor-Forcing's bounded long-horizon RoPE policy, with one fixed layout instead of
 separate sink/retrieval/rebase switches.
+
+The normal RoPE attention path uses all three regions. minWM's additional PRoPE
+branch remains its original local-cache path; camera geometry drives selection but
+archived PRoPE tensors are not duplicated in the memory bank.

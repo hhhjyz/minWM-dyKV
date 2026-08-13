@@ -6,6 +6,8 @@ import torch
 from wan.utils.fm_solvers import FlowDPMSolverMultistepScheduler, get_sampling_sigmas, retrieve_timesteps
 from wan.utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
 from wan_utils.wan_wrapper import WanDiffusionWrapper, WanTextEncoder, WanVAEWrapper
+from .dykv_memory import DyKVConfig
+from .dykv_runtime import DyKVRuntime
 
 
 class CausalDiffusionInferencePipeline(torch.nn.Module):
@@ -45,6 +47,14 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
         self.num_frame_per_block = getattr(args, "num_frame_per_block", 1)
         self.independent_first_frame = args.independent_first_frame
         self.local_attn_size = self.generator.model.local_attn_size
+        self.dykv = DyKVRuntime(
+            DyKVConfig(
+                enabled=bool(getattr(args, "dykv_enabled", False)),
+                memory_frames=int(getattr(args, "dykv_memory_frames", 8)),
+            ),
+            chunk_frames=self.num_frame_per_block,
+        )
+        self.last_dykv_summary = None
 
         # Latency of producing the first chunk (set by inference()).
         self.last_chunk0_latency = None
@@ -82,6 +92,9 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                 (batch_size, num_frames, num_channels, height, width). It is normalized to be in the range [0, 1].
         """
         batch_size, num_frames, num_channels, height, width = noise.shape
+        self.dykv.reset()
+        if self.dykv.config.enabled and viewmats is None:
+            raise ValueError("--dykv requires a camera trajectory for FOV retrieval")
 
         # Start chunk0 latency timer 
         if not self.independent_first_frame or (self.independent_first_frame and initial_latent is not None):
@@ -195,6 +208,22 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                     Ks=ks_slice,
                     prope_kv_cache=self.prope_kv_cache_neg
                 )
+                self.dykv.archive(
+                    "positive",
+                    self.kv_cache_pos,
+                    frame_start=current_start_frame,
+                    frame_count=1,
+                    frame_tokens=self.frame_seq_length,
+                    viewmats=vm_slice,
+                )
+                self.dykv.archive(
+                    "negative",
+                    self.kv_cache_neg,
+                    frame_start=current_start_frame,
+                    frame_count=1,
+                    frame_tokens=self.frame_seq_length,
+                    viewmats=vm_slice,
+                )
                 current_start_frame += 1
                 cache_start_frame += 1
             else:
@@ -232,6 +261,22 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                     Ks=ks_chunk,
                     prope_kv_cache=self.prope_kv_cache_neg
                 )
+                self.dykv.archive(
+                    "positive",
+                    self.kv_cache_pos,
+                    frame_start=current_start_frame,
+                    frame_count=self.num_frame_per_block,
+                    frame_tokens=self.frame_seq_length,
+                    viewmats=vm_chunk,
+                )
+                self.dykv.archive(
+                    "negative",
+                    self.kv_cache_neg,
+                    frame_start=current_start_frame,
+                    frame_count=self.num_frame_per_block,
+                    frame_tokens=self.frame_seq_length,
+                    viewmats=vm_chunk,
+                )
                 current_start_frame += self.num_frame_per_block
                 cache_start_frame += self.num_frame_per_block
 
@@ -247,6 +292,20 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
             # Slice viewmats/Ks for current chunk
             vm_chunk = viewmats[:, current_start_frame:current_start_frame + current_num_frames] if viewmats is not None else None
             ks_chunk = Ks[:, current_start_frame:current_start_frame + current_num_frames] if Ks is not None else None
+            retrieval_pos = self.dykv.retrieve(
+                "positive",
+                current_frame=current_start_frame,
+                current_viewmats=vm_chunk,
+                frame_tokens=self.frame_seq_length,
+                target_device=noise.device,
+            )
+            retrieval_neg = self.dykv.retrieve(
+                "negative",
+                current_frame=current_start_frame,
+                current_viewmats=vm_chunk,
+                frame_tokens=self.frame_seq_length,
+                target_device=noise.device,
+            )
 
             # Step 3.1: Spatial denoising loop
             sample_scheduler = self._initialize_sample_scheduler(noise)
@@ -266,7 +325,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                     cache_start=cache_start_frame * self.frame_seq_length,
                     viewmats=vm_chunk,
                     Ks=ks_chunk,
-                    prope_kv_cache=self.prope_kv_cache_pos
+                    prope_kv_cache=self.prope_kv_cache_pos,
+                    retrieval_kv=retrieval_pos,
                 )
                 flow_pred_uncond, _ = self.generator(
                     noisy_image_or_video=latent_model_input,
@@ -278,7 +338,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                     cache_start=cache_start_frame * self.frame_seq_length,
                     viewmats=vm_chunk,
                     Ks=ks_chunk,
-                    prope_kv_cache=self.prope_kv_cache_neg
+                    prope_kv_cache=self.prope_kv_cache_neg,
+                    retrieval_kv=retrieval_neg,
                 )
 
                 flow_pred = flow_pred_uncond + self.args.guidance_scale * (
@@ -312,7 +373,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                 cache_start=cache_start_frame * self.frame_seq_length,
                 viewmats=vm_chunk,
                 Ks=ks_chunk,
-                prope_kv_cache=self.prope_kv_cache_pos
+                prope_kv_cache=self.prope_kv_cache_pos,
+                retrieval_kv=retrieval_pos,
             )
             self.generator(
                 noisy_image_or_video=latents,
@@ -324,7 +386,24 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                 cache_start=cache_start_frame * self.frame_seq_length,
                 viewmats=vm_chunk,
                 Ks=ks_chunk,
-                prope_kv_cache=self.prope_kv_cache_neg
+                prope_kv_cache=self.prope_kv_cache_neg,
+                retrieval_kv=retrieval_neg,
+            )
+            self.dykv.archive(
+                "positive",
+                self.kv_cache_pos,
+                frame_start=current_start_frame,
+                frame_count=current_num_frames,
+                frame_tokens=self.frame_seq_length,
+                viewmats=vm_chunk,
+            )
+            self.dykv.archive(
+                "negative",
+                self.kv_cache_neg,
+                frame_start=current_start_frame,
+                frame_count=current_num_frames,
+                frame_tokens=self.frame_seq_length,
+                viewmats=vm_chunk,
             )
 
             # Step 3.4: update the start and end frame indices
@@ -332,6 +411,7 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
             cache_start_frame += current_num_frames
 
         # Step 4: Decode the output
+        self.last_dykv_summary = self.dykv.summary()
         if return_video:
             video = self.vae.decode_to_pixel(output)
             video = (video * 0.5 + 0.5).clamp(0, 1)

@@ -18,6 +18,9 @@ CHECKPOINT_PATH="${CHECKPOINT_PATH:-./ckpts/Wan21/Action2V/dmd/model.pt}"
 DATA_PATH="${DATA_PATH:-Wan21/prompts/demos.txt}"
 OUTPUT_FOLDER="${OUTPUT_FOLDER:-output/causal_camera}"
 SP_SIZE="${SP_SIZE:-1}"
+DYKV="${DYKV:-0}"
+DYKV_MEMORY_FRAMES="${DYKV_MEMORY_FRAMES:-8}"
+NUM_OUTPUT_FRAMES="${NUM_OUTPUT_FRAMES:-20}"
 
 # ===== Camera Trajectory =====
 TRAJECTORY="${TRAJECTORY:-w*19}"
@@ -41,6 +44,11 @@ echo "  Config:     $CONFIG_PATH"
 echo "  Checkpoint: $CHECKPOINT_PATH"
 echo "  Output:     $OUTPUT_FOLDER"
 
+DYKV_ARGS=()
+if [ "$DYKV" = "1" ]; then
+  DYKV_ARGS+=(--dykv --dykv-memory-frames "$DYKV_MEMORY_FRAMES")
+fi
+
 export SP_SIZE=$SP_SIZE
 torchrun \
   --master_addr=$MASTER_ADDR \
@@ -53,5 +61,7 @@ torchrun \
   --output_folder "$OUTPUT_FOLDER" \
   --checkpoint_path "$CHECKPOINT_PATH" \
   --data_path "$DATA_PATH" \
+  --num_output_frames "$NUM_OUTPUT_FRAMES" \
   --sp_size $SP_SIZE \
+  "${DYKV_ARGS[@]}" \
   $TRAJ_ARGS

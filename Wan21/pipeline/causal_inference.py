@@ -6,6 +6,8 @@ from wan_utils.wan_wrapper import WanDiffusionWrapper, WanTextEncoder, WanVAEWra
 
 from demo_utils.memory import gpu, get_cuda_free_memory_gb, DynamicSwapInstaller, move_model_to_device_with_memory_preservation
 import tqdm
+from .dykv_memory import DyKVConfig
+from .dykv_runtime import DyKVRuntime
 
 class CausalInferencePipeline(torch.nn.Module):
     def __init__(
@@ -40,6 +42,14 @@ class CausalInferencePipeline(torch.nn.Module):
         self.num_frame_per_block = getattr(args, "num_frame_per_block", 1)
         self.independent_first_frame = args.independent_first_frame
         self.local_attn_size = self.generator.model.local_attn_size
+        self.dykv = DyKVRuntime(
+            DyKVConfig(
+                enabled=bool(getattr(args, "dykv_enabled", False)),
+                memory_frames=int(getattr(args, "dykv_memory_frames", 8)),
+            ),
+            chunk_frames=self.num_frame_per_block,
+        )
+        self.last_dykv_summary = None
 
         # Latency of producing the first chunk (set by inference()).
         self.last_chunk0_latency = None
@@ -78,6 +88,9 @@ class CausalInferencePipeline(torch.nn.Module):
                 It is normalized to be in the range [0, 1].
         """
         batch_size, num_frames, num_channels, height, width = noise.shape
+        self.dykv.reset()
+        if self.dykv.config.enabled and viewmats is None:
+            raise ValueError("--dykv requires a camera trajectory for FOV retrieval")
 
         if not self.independent_first_frame or (self.independent_first_frame and initial_latent is not None):
             # If the first frame is independent and the first frame is provided, then the number of frames in the
@@ -181,6 +194,14 @@ class CausalInferencePipeline(torch.nn.Module):
                     Ks=ks_chunk,
                     prope_kv_cache=self.prope_kv_cache1,
                 )
+                self.dykv.archive(
+                    "main",
+                    self.kv_cache1,
+                    frame_start=current_start_frame,
+                    frame_count=1,
+                    frame_tokens=self.frame_seq_length,
+                    viewmats=vm_chunk,
+                )
                 current_start_frame += 1
             else:
                 # Assume num_input_frames is self.num_frame_per_block * num_input_blocks
@@ -204,6 +225,14 @@ class CausalInferencePipeline(torch.nn.Module):
                     Ks=ks_chunk,
                     prope_kv_cache=self.prope_kv_cache1,
                 )
+                self.dykv.archive(
+                    "main",
+                    self.kv_cache1,
+                    frame_start=current_start_frame,
+                    frame_count=self.num_frame_per_block,
+                    frame_tokens=self.frame_seq_length,
+                    viewmats=vm_chunk,
+                )
                 current_start_frame += self.num_frame_per_block
 
         if profile:
@@ -224,6 +253,13 @@ class CausalInferencePipeline(torch.nn.Module):
 
             vm_chunk = viewmats[:, current_start_frame:current_start_frame + current_num_frames] if viewmats is not None else None
             ks_chunk = Ks[:, current_start_frame:current_start_frame + current_num_frames] if Ks is not None else None
+            retrieval_kv = self.dykv.retrieve(
+                "main",
+                current_frame=current_start_frame,
+                current_viewmats=vm_chunk,
+                frame_tokens=self.frame_seq_length,
+                target_device=noise.device,
+            )
 
             # Step 3.1: Spatial denoising loop
             for index, current_timestep in enumerate(self.denoising_step_list):
@@ -245,6 +281,7 @@ class CausalInferencePipeline(torch.nn.Module):
                         viewmats=vm_chunk,
                         Ks=ks_chunk,
                         prope_kv_cache=self.prope_kv_cache1,
+                        retrieval_kv=retrieval_kv,
                     )
                     next_timestep = self.denoising_step_list[index + 1]
                     noisy_input = self.scheduler.add_noise(
@@ -265,6 +302,7 @@ class CausalInferencePipeline(torch.nn.Module):
                         viewmats=vm_chunk,
                         Ks=ks_chunk,
                         prope_kv_cache=self.prope_kv_cache1,
+                        retrieval_kv=retrieval_kv,
                     )
 
             # Step 3.2: record the model's output
@@ -288,6 +326,15 @@ class CausalInferencePipeline(torch.nn.Module):
                 viewmats=vm_chunk,
                 Ks=ks_chunk,
                 prope_kv_cache=self.prope_kv_cache1,
+                retrieval_kv=retrieval_kv,
+            )
+            self.dykv.archive(
+                "main",
+                self.kv_cache1,
+                frame_start=current_start_frame,
+                frame_count=current_num_frames,
+                frame_tokens=self.frame_seq_length,
+                viewmats=vm_chunk,
             )
 
             if profile:
@@ -330,6 +377,7 @@ class CausalInferencePipeline(torch.nn.Module):
             print(f"  - VAE decoding time: {vae_time:.2f} ms ({100 * vae_time / total_time:.2f}%)")
             print(f"  - Total time: {total_time:.2f} ms")
 
+        self.last_dykv_summary = self.dykv.summary()
         if return_latents:
             return video, output
         else:

@@ -120,13 +120,24 @@ class WanDiffusionWrapper(torch.nn.Module):
             is_causal=False,
             local_attn_size=-1,
             sink_size=0,
+            dykv_enabled=False,
+            dykv_memory_frames=8,
+            dykv_local_frames=4,
+            dykv_rope_train_frames=20,
             use_camera=False
     ):
         super().__init__()
 
         if is_causal:
             self.model = CausalWanModel.from_pretrained(
-                f"Wan21/wan_models/{model_name}/", local_attn_size=local_attn_size, sink_size=sink_size)
+                f"Wan21/wan_models/{model_name}/",
+                local_attn_size=local_attn_size,
+                sink_size=sink_size,
+                dykv_enabled=dykv_enabled,
+                dykv_memory_frames=dykv_memory_frames,
+                dykv_local_frames=dykv_local_frames,
+                dykv_rope_train_frames=dykv_rope_train_frames,
+            )
         else:
             self.model = WanModel.from_pretrained(f"Wan21/wan_models/{model_name}/")
         self.model.eval()
@@ -232,7 +243,8 @@ class WanDiffusionWrapper(torch.nn.Module):
         cache_start: Optional[int] = None,
         viewmats: Optional[torch.Tensor] = None,
         Ks: Optional[torch.Tensor] = None,
-        prope_kv_cache: Optional[List[dict]] = None
+        prope_kv_cache: Optional[List[dict]] = None,
+        retrieval_kv: Optional[List[dict]] = None,
     ) -> torch.Tensor:
         prompt_embeds = conditional_dict["prompt_embeds"]
 
@@ -261,7 +273,8 @@ class WanDiffusionWrapper(torch.nn.Module):
                 cache_start=cache_start,
                 viewmats=viewmats,
                 Ks=Ks,
-                prope_kv_cache=prope_kv_cache
+                prope_kv_cache=prope_kv_cache,
+                retrieval_kv=retrieval_kv,
             ).permute(0, 2, 1, 3, 4)
         else:
             if clean_x is not None:
