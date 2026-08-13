@@ -28,7 +28,7 @@ command-line hyperparameter.
 
 - [`KV_MEMORY.md`](KV_MEMORY.md): eviction storage, retrieval payloads, and retrieval-time compression.
 - [`TRI_REGION_ROPE.md`](TRI_REGION_ROPE.md): bounded temporal position layout.
-- `FOV_RETRIEVAL.md`: HY-WorldPlay-compatible FOV scoring and selection.
+- [`FOV_RETRIEVAL.md`](FOV_RETRIEVAL.md): HY-WorldPlay-compatible FOV scoring and selection.
 - `MBENCH.md`: case conversion, generation, and evaluation workflow.
 - `EXPERIMENTS.md`: experiment matrix, commands, environment, and recorded results.
 
