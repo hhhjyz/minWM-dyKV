@@ -95,3 +95,6 @@ retrieval 帧预算相同。
 
 主结论应以 A0--A3 为准。A4--A10 与 R0--R3 用来解释机制，不应在观察完整方法结果后
 只选择有利的子集报告。
+
+动态压缩后用空余 token 容量装入更多 chunk，以及对应的 E0--E6 消融，见
+[`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md)。

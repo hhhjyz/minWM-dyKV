@@ -40,6 +40,9 @@ conda activate minwm-fa
 8 帧 local（4 帧 recent + 4 帧 current），正好覆盖 20 帧 RoPE 训练窗口。
 动态空间压缩及完整消融矩阵见 [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)
 和 [`ABLATIONS.md`](ABLATIONS.md)。
+压缩后扩充历史覆盖、latent 尾部补齐和 frame-level RoPE slot folding 的待实现方案见
+[`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md)。在该模块实现前，现有
+`yaw_intrinsics` 仍是“先选择 8 个原始 latent，再裁剪并允许 retrieval token 欠填”。
 
 ## 评测分组
 
