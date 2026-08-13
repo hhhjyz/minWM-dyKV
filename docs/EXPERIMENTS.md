@@ -53,3 +53,29 @@ Record the following for every run:
 | pending | B2 | pending | 0 | pending | pending | pending | pending | complete method |
 
 Do not replace `pending` with estimates. Only measured values belong in this table.
+
+## Implementation smoke test
+
+This is a wiring check, not an MBench score. It deliberately crosses the frame-20
+activation boundary with a short loop-closure trajectory so retrieval, compression,
+and tri-region RoPE execute in a real checkpoint run.
+
+| Field | Measured value |
+| --- | --- |
+| Date / commit | 2026-08-13 / `d4dcdd2` |
+| Environment | `minwm-fa`; PyTorch 2.8.0+cu128; CUDA 12.8; FlashAttention 2.8.3.post1 |
+| GPU | 1 × NVIDIA GeForce RTX 4090 (48 GB) |
+| Checkpoint | Action2V DMD `model.pt`; SHA-256 `bdb947d45fb04513305492c2ee393d51d0621ec0e99fd312224f5d61a330aa77` |
+| Prompt / seed | one synthetic red-cabin loop-closure prompt / 0 |
+| Trajectory | `j*10,l*10,n*3` |
+| Length / output | 24 latent frames / 93 decoded frames, 832×480, 16 fps |
+| Generation status | 6/6 causal chunks completed; MP4 and generation manifest written |
+| Bank at completion | 6 lossless CPU blocks, 6,900,940,800 bytes |
+| Retrieval at frame 20 | candidates `[1,2,3]`; ranked `[1,3,2]`; selected frame starts `[4,12]` |
+| Compression result | 12,480 raw selected tokens/layer → 7,800 attended tokens/layer |
+| Retrieval wall time | 2.6609 s (selection, transfer, and compression) |
+
+The run output was placed under `/tmp/minwm_dykv_smoke` and is not a durable
+benchmark artifact. Peak VRAM was not instrumented for this smoke test and is not
+reported. Formal B0/B1/B2 and MBench result rows remain pending until those full
+experiments are run.
