@@ -31,6 +31,10 @@
 sink，适合先比较
 `baseline`、`retrieval_no_compression` 和 `yaw_intrinsics`，共生成 12 个视频。
 
+若只比较动态扩容机制，可将三组 case 改为
+`yaw_intrinsics,packed_chunks,packed_chunks_latent`，仍只生成 12 个视频，分别对应
+E0/E1/E2。
+
 ## 3. 扩展的八样本集合
 
 八样本集合在每个 subset 内补齐相反方向：

@@ -8,6 +8,10 @@ import torch
 
 from .dykv_fov import deterministic_sphere_points, select_fov_blocks
 from .dykv_memory import DyKVBank, DyKVConfig
+from .dykv_packing import (
+    build_packed_retrieval_plan,
+    materialize_packed_retrieval,
+)
 
 
 class DyKVRuntime:
@@ -91,18 +95,43 @@ class DyKVRuntime:
             radius=self.config.fov_radius,
             fov_source=self.config.retrieval_fov_source,
         )
-        payloads = bank.materialize(
-            selected,
-            target_device=target_device,
-            chunk_frames=self.chunk_frames,
-            frame_tokens=frame_tokens,
-            keep_ratio=self.config.compression_keep_ratio,
-            compression_mode=self.config.compression_mode,
-            current_viewmats=current_viewmats,
-            current_Ks=current_Ks,
-            compression_fov_source=self.config.compression_fov_source,
-            fixed_horizontal_degrees=self.config.fov_horizontal_degrees,
-        ) if selected else None
+        packing_plan = None
+        if self.config.packing_mode != "none":
+            packing_plan = build_packed_retrieval_plan(
+                bank,
+                ranked_candidates,
+                distances,
+                current_viewmats=current_viewmats,
+                current_Ks=current_Ks,
+                frame_tokens=frame_tokens,
+                memory_frames=self.config.memory_frames,
+                sink_frames=self.config.sink_frames,
+                include_tail_latents=(
+                    self.config.packing_mode == "whole_chunks_and_latents"
+                ),
+                compression_fov_source=self.config.compression_fov_source,
+                fixed_horizontal_degrees=self.config.fov_horizontal_degrees,
+            )
+            payloads = materialize_packed_retrieval(
+                bank,
+                packing_plan,
+                target_device=target_device,
+                frame_tokens=frame_tokens,
+            )
+            selected = list(packing_plan.selected_full_blocks)
+        else:
+            payloads = bank.materialize(
+                selected,
+                target_device=target_device,
+                chunk_frames=self.chunk_frames,
+                frame_tokens=frame_tokens,
+                keep_ratio=self.config.compression_keep_ratio,
+                compression_mode=self.config.compression_mode,
+                current_viewmats=current_viewmats,
+                current_Ks=current_Ks,
+                compression_fov_source=self.config.compression_fov_source,
+                fixed_horizontal_degrees=self.config.fov_horizontal_degrees,
+            ) if selected else None
         if not payloads:
             payloads = None
         diagnostics = payloads[0] if payloads else {}
@@ -127,6 +156,24 @@ class DyKVRuntime:
                 "horizontal_fov_degrees": diagnostics.get("horizontal_fov_degrees", []),
                 "retrieval_fov_source": self.config.retrieval_fov_source,
                 "compression_fov_source": self.config.compression_fov_source,
+                "packing_mode": self.config.packing_mode,
+                "selected_tail_frame_ids": diagnostics.get(
+                    "selected_tail_frame_ids", []
+                ),
+                "source_frame_ids": diagnostics.get("source_frame_ids", []),
+                "virtual_slot_ids": diagnostics.get("virtual_slot_ids", []),
+                "keep_tiers": diagnostics.get("keep_tiers", []),
+                "packing_budget_atoms": diagnostics.get("packing_budget_atoms", 0),
+                "packing_used_atoms": diagnostics.get("packing_used_atoms", 0),
+                "packing_used_virtual_slots": diagnostics.get(
+                    "packing_used_virtual_slots", 0
+                ),
+                "packing_candidate_block_ids": [
+                    bank.blocks[index].block_id
+                    for index in (
+                        packing_plan.candidate_block_indices if packing_plan else ()
+                    )
+                ],
                 "seconds": time.perf_counter() - started,
             }
         )
@@ -138,6 +185,7 @@ class DyKVRuntime:
             "sink_mode": "fixed",
             "sink_frames": self.config.sink_frames,
             "compression_mode": self.config.compression_mode,
+            "packing_mode": self.config.packing_mode,
             "retrieval_fov_source": self.config.retrieval_fov_source,
             "compression_fov_source": self.config.compression_fov_source,
             "branches": {branch: bank.summary() for branch, bank in self.banks.items()},

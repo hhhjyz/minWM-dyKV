@@ -26,6 +26,7 @@ def _load(name):
 
 _load("dykv_fov")
 memory = _load("dykv_memory")
+_load("dykv_packing")
 runtime_module = _load("dykv_runtime")
 
 
@@ -129,6 +130,45 @@ class DyKVRuntimeTest(unittest.TestCase):
         self.assertEqual(event["raw_tokens_per_layer"], 96)
         self.assertEqual(event["retrieved_tokens_per_layer"], 48)
         self.assertEqual(event["kept_tokens_per_frame"], [[6] * 4, [6] * 4])
+
+    def test_packed_runtime_can_cover_more_than_eight_source_frames(self):
+        config = memory.DyKVConfig(
+            enabled=True,
+            fov_samples=2048,
+            packing_mode="whole_chunks",
+        )
+        runtime = runtime_module.DyKVRuntime(config, chunk_frames=4)
+        historical = torch.stack([_yaw_w2c(0.0)] * 4).unsqueeze(0)
+        for start in range(0, 28, 4):
+            runtime.archive(
+                "main",
+                [_cache(start, tokens=64)],
+                frame_start=start,
+                frame_count=4,
+                frame_tokens=16,
+                viewmats=historical,
+                Ks=_intrinsics(),
+                spatial_shape=(2, 8),
+            )
+
+        current = torch.stack([_yaw_w2c(45.0)] * 4).unsqueeze(0)
+        payloads = runtime.retrieve(
+            "main",
+            current_frame=28,
+            current_viewmats=current,
+            current_Ks=_intrinsics(),
+            frame_tokens=16,
+            target_device="cpu",
+        )
+
+        self.assertIsNotNone(payloads)
+        payload = payloads[0]
+        self.assertLessEqual(payload["k"].shape[1], 8 * 16)
+        self.assertGreater(len(payload["source_frame_ids"]), 8)
+        self.assertTrue(all(4 <= slot <= 11 for slot in payload["virtual_slot_ids"]))
+        event = runtime.summary()["events"][0]
+        self.assertEqual(event["packing_mode"], "whole_chunks")
+        self.assertEqual(event["packing_used_atoms"], payload["packing_used_atoms"])
 
 
 if __name__ == "__main__":

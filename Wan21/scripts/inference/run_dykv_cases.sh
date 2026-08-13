@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/../../.."; pwd)"
 cd "$PROJECT_ROOT"
 
-CASES="${CASES:-baseline,retrieval_no_compression,fixed_novelty,yaw_fixed_fov,yaw_mixed_fov,yaw_intrinsics}"
+CASES="${CASES:-baseline,retrieval_no_compression,fixed_novelty,yaw_fixed_fov,yaw_mixed_fov,yaw_intrinsics,packed_chunks,packed_chunks_latent}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-output/dykv_cases}"
 MODEL_PREFIX="${MODEL_PREFIX:-minwm_dykv}"
 SEED="${SEED:-0}"

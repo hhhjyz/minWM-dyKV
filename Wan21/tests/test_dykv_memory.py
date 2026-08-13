@@ -55,6 +55,11 @@ class DyKVMemoryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "compression_mode"):
             config.validate(chunk_frames=4)
 
+    def test_config_rejects_unknown_packing_mode(self):
+        config = DyKVConfig(enabled=True, packing_mode="unknown")
+        with self.assertRaisesRegex(ValueError, "packing_mode"):
+            config.validate(chunk_frames=4)
+
     def test_bank_archives_latest_clean_tokens_and_only_exposes_evicted_blocks(self):
         values = torch.arange(12, dtype=torch.float32).reshape(1, 12, 1, 1)
         bank = DyKVBank()

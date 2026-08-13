@@ -23,6 +23,7 @@ class DyKVCase:
     retrieval_fov_source: str
     compression_fov_source: str
     description: str
+    packing_mode: str = "none"
     sink_mode: str = FIXED_SINK_MODE
     sink_frames: int = FIXED_SINK_FRAMES
 
@@ -83,6 +84,24 @@ DYKV_CASES = {
             "intrinsics",
             "intrinsics",
             "检索和动态裁剪都使用相机内参（F2，默认完整方法）",
+        ),
+        DyKVCase(
+            "packed_chunks",
+            True,
+            "yaw_fov",
+            "intrinsics",
+            "intrinsics",
+            "固定档位动态压缩，并用完整 chunk 扩充 retrieval（E1）",
+            packing_mode="whole_chunks",
+        ),
+        DyKVCase(
+            "packed_chunks_latent",
+            True,
+            "yaw_fov",
+            "intrinsics",
+            "intrinsics",
+            "固定档位完整 chunk 装箱，并用单 latent 补齐尾部（E2）",
+            packing_mode="whole_chunks_and_latents",
         ),
     )
 }

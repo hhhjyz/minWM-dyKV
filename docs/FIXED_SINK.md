@@ -55,5 +55,7 @@ dyKV cases:
 | `yaw_fixed_fov` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `yaw_mixed_fov` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `yaw_intrinsics` | 固定最初 4 帧 | retrieval 8 + local 8 |
+| `packed_chunks` | 固定最初 4 帧 | retrieval 8 + local 8 |
+| `packed_chunks_latent` | 固定最初 4 帧 | retrieval 8 + local 8 |
 
 新增 case 必须继承同一个固定四帧 sink。注册表测试会拒绝无意中改变该约定的 case。

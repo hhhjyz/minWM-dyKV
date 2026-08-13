@@ -92,6 +92,88 @@ class DyKVRoPETest(unittest.TestCase):
         self.assertTrue(cache["k"].equal(original_cache_k))
         self.assertTrue(retrieval_k.equal(original_retrieval_k))
 
+    def test_packed_segments_are_rebased_to_explicit_shared_slots(self):
+        keys = torch.randn(1, 20, 1, 6)
+        values = torch.arange(20, dtype=torch.float32).reshape(1, 20, 1, 1)
+        retrieval_k = torch.randn(1, 6, 1, 6)
+        retrieval_v = torch.arange(100, 106, dtype=torch.float32).reshape(1, 6, 1, 1)
+        retrieval = {
+            "k": retrieval_k,
+            "v": retrieval_v,
+            "source_frame_ids": [20, 21, 30],
+            "frame_token_lengths": [2, 2, 2],
+            "virtual_slot_ids": [4, 4, 5],
+        }
+
+        composed_k, composed_v = compose_tri_region(
+            {"k": keys, "v": values},
+            local_end_index=20,
+            frame_tokens=4,
+            current_end_frame=44,
+            query_frames=4,
+            freqs=_freqs(64),
+            retrieval=retrieval,
+            spec=TriRegionSpec(),
+            dtype=keys.dtype,
+            device=keys.device,
+        )
+
+        expected = torch.cat(
+            [
+                shift_roped_time(retrieval_k[:, :2], _freqs(64), 4 - 20),
+                shift_roped_time(retrieval_k[:, 2:4], _freqs(64), 4 - 21),
+                shift_roped_time(retrieval_k[:, 4:], _freqs(64), 5 - 30),
+            ],
+            dim=1,
+        )
+        self.assertTrue(torch.allclose(composed_k[:, 16:22], expected))
+        self.assertEqual(composed_v[:, 16:22].flatten().tolist(), list(range(100, 106)))
+        self.assertTrue(retrieval_k.equal(retrieval["k"]))
+
+    def test_packed_slot_capacity_is_enforced(self):
+        retrieval = {
+            "k": torch.randn(1, 5, 1, 6),
+            "v": torch.randn(1, 5, 1, 1),
+            "source_frame_ids": [20, 21],
+            "frame_token_lengths": [3, 2],
+            "virtual_slot_ids": [4, 4],
+        }
+        with self.assertRaisesRegex(ValueError, "slot exceeds"):
+            compose_tri_region(
+                {"k": torch.randn(1, 24, 1, 6), "v": torch.randn(1, 24, 1, 1)},
+                local_end_index=24,
+                frame_tokens=4,
+                current_end_frame=44,
+                query_frames=4,
+                freqs=_freqs(64),
+                retrieval=retrieval,
+                spec=TriRegionSpec(),
+                dtype=torch.float32,
+                device=torch.device("cpu"),
+            )
+
+    def test_packed_frame_lengths_must_use_quarter_frame_atoms(self):
+        retrieval = {
+            "k": torch.randn(1, 3, 1, 6),
+            "v": torch.randn(1, 3, 1, 1),
+            "source_frame_ids": [20],
+            "frame_token_lengths": [3],
+            "virtual_slot_ids": [4],
+        }
+        with self.assertRaisesRegex(ValueError, "atom-aligned"):
+            compose_tri_region(
+                {"k": torch.randn(1, 24, 1, 6), "v": torch.randn(1, 24, 1, 1)},
+                local_end_index=24,
+                frame_tokens=8,
+                current_end_frame=44,
+                query_frames=4,
+                freqs=_freqs(64),
+                retrieval=retrieval,
+                spec=TriRegionSpec(),
+                dtype=torch.float32,
+                device=torch.device("cpu"),
+            )
+
     def test_overlap_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "overlap"):
             TriRegionSpec(memory_frames=16).validate(query_frames=4)

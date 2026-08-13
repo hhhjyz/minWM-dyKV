@@ -113,8 +113,9 @@ def compose_tri_region(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Compose ``sink | retrieval | local+current`` with bounded RoPE.
 
-    Retrieval payloads may be token-compressed. Each chunk is shifted as a unit;
-    its retained tokens keep their original within-chunk temporal offsets.
+    Retrieval payloads may be token-compressed. Legacy payloads shift each chunk
+    as a unit. Packed payloads explicitly map each source-frame segment to one
+    virtual retrieval slot.
     """
 
     spec.validate(query_frames)
@@ -148,38 +149,97 @@ def compose_tri_region(
     if retrieval is not None and retrieval.get("k") is not None:
         retrieval_k = retrieval["k"].to(device=device, dtype=dtype)
         retrieval_v = retrieval["v"].to(device=device, dtype=dtype)
-        source_starts = [int(value) for value in retrieval.get("src_frame_ids", [])]
-        frame_counts = [int(value) for value in retrieval.get("chunk_frame_counts", [])]
-        token_lengths = [int(value) for value in retrieval.get("chunk_token_lengths", [])]
-        if not (
-            len(source_starts) == len(frame_counts) == len(token_lengths)
-            and sum(token_lengths) == retrieval_k.shape[1]
-        ):
-            raise ValueError("tri-region retrieval payload has invalid chunk metadata")
-        if sum(frame_counts) > spec.memory_frames:
-            raise ValueError("retrieval payload exceeds the tri-region memory budget")
+        if retrieval.get("frame_token_lengths") is not None:
+            source_frames = [
+                int(value) for value in retrieval.get("source_frame_ids", [])
+            ]
+            token_lengths = [
+                int(value) for value in retrieval.get("frame_token_lengths", [])
+            ]
+            virtual_slots = [
+                int(value) for value in retrieval.get("virtual_slot_ids", [])
+            ]
+            if not source_frames or not (
+                len(source_frames) == len(token_lengths) == len(virtual_slots)
+            ):
+                raise ValueError("packed retrieval has invalid frame metadata")
+            if any(length <= 0 for length in token_lengths):
+                raise ValueError("packed retrieval frame lengths must be positive")
+            if sum(token_lengths) != retrieval_k.shape[1] or (
+                retrieval_v.shape[1] != retrieval_k.shape[1]
+            ):
+                raise ValueError("packed retrieval token lengths do not match K/V")
+            if sum(token_lengths) > spec.memory_frames * frame_tokens:
+                raise ValueError("packed retrieval exceeds the token budget")
+            if frame_tokens % 4:
+                raise ValueError("packed retrieval frame size must have four atoms")
+            atom_tokens = frame_tokens // 4
+            if any(
+                length > frame_tokens or length % atom_tokens
+                for length in token_lengths
+            ):
+                raise ValueError("packed retrieval frame length is not atom-aligned")
+            slot_min = spec.sink_frames
+            slot_max = spec.sink_frames + spec.memory_frames - 1
+            if virtual_slots != sorted(virtual_slots) or any(
+                slot < slot_min or slot > slot_max for slot in virtual_slots
+            ):
+                raise ValueError("packed retrieval virtual slots are invalid")
+            slot_tokens: dict[int, int] = {}
+            for slot, length in zip(virtual_slots, token_lengths):
+                slot_tokens[slot] = slot_tokens.get(slot, 0) + length
+            if any(tokens > frame_tokens for tokens in slot_tokens.values()):
+                raise ValueError("packed retrieval virtual slot exceeds frame capacity")
 
-        target_start = spec.sink_frames
-        token_start = 0
-        rebased_chunks = []
-        for source_start, frame_count, token_length in zip(
-            source_starts, frame_counts, token_lengths
-        ):
-            token_end = token_start + token_length
-            rebased_chunks.append(
-                shift_roped_time(
-                    retrieval_k[:, token_start:token_end],
-                    freqs,
-                    target_start - source_start,
+            token_start = 0
+            rebased_segments = []
+            for source_frame, token_length, virtual_slot in zip(
+                source_frames, token_lengths, virtual_slots
+            ):
+                token_end = token_start + token_length
+                rebased_segments.append(
+                    shift_roped_time(
+                        retrieval_k[:, token_start:token_end],
+                        freqs,
+                        virtual_slot - source_frame,
+                    )
                 )
-            )
-            target_start += frame_count
-            token_start = token_end
-        if target_start > spec.local_start(query_frames):
-            raise ValueError("retrieval region overlaps the local RoPE region")
-        if rebased_chunks:
-            region_k.append(torch.cat(rebased_chunks, dim=1))
+                token_start = token_end
+            region_k.append(torch.cat(rebased_segments, dim=1))
             region_v.append(retrieval_v)
+        else:
+            source_starts = [int(value) for value in retrieval.get("src_frame_ids", [])]
+            frame_counts = [int(value) for value in retrieval.get("chunk_frame_counts", [])]
+            token_lengths = [int(value) for value in retrieval.get("chunk_token_lengths", [])]
+            if not (
+                len(source_starts) == len(frame_counts) == len(token_lengths)
+                and sum(token_lengths) == retrieval_k.shape[1]
+            ):
+                raise ValueError("tri-region retrieval payload has invalid chunk metadata")
+            if sum(frame_counts) > spec.memory_frames:
+                raise ValueError("retrieval payload exceeds the tri-region memory budget")
+
+            target_start = spec.sink_frames
+            token_start = 0
+            rebased_chunks = []
+            for source_start, frame_count, token_length in zip(
+                source_starts, frame_counts, token_lengths
+            ):
+                token_end = token_start + token_length
+                rebased_chunks.append(
+                    shift_roped_time(
+                        retrieval_k[:, token_start:token_end],
+                        freqs,
+                        target_start - source_start,
+                    )
+                )
+                target_start += frame_count
+                token_start = token_end
+            if target_start > spec.local_start(query_frames):
+                raise ValueError("retrieval region overlaps the local RoPE region")
+            if rebased_chunks:
+                region_k.append(torch.cat(rebased_chunks, dim=1))
+                region_v.append(retrieval_v)
 
     region_k.append(local_k)
     region_v.append(local_v)

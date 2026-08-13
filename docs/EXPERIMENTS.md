@@ -31,6 +31,8 @@ conda activate minwm-fa
 | B1 | `retrieval_no_compression` | 不压缩的 dyKV | 单独分析检索收益 | 待运行 |
 | B2 | `fixed_novelty` | 固定内容压缩 dyKV | 与相机无关的压缩对照 | 待运行 |
 | B3 | `yaw_intrinsics` | 完整动态 dyKV | 评估记忆、速度与质量 | 待运行 |
+| B4 | `packed_chunks` | 固定档位完整 chunk 扩容 | 评估更多完整历史覆盖 | 待运行 |
+| B5 | `packed_chunks_latent` | 完整 chunk + latent 尾部补齐 | 评估余量补齐收益 | 待运行 |
 
 以上 case 均可由 `Wan21/scripts/inference/run_dykv_cases.sh` 统一运行。FOV 来源消融另使用
 `yaw_fixed_fov`、`yaw_mixed_fov` 和 `yaw_intrinsics`，定义见
@@ -41,9 +43,10 @@ conda activate minwm-fa
 8 帧 local（4 帧 recent + 4 帧 current），正好覆盖 20 帧 RoPE 训练窗口。
 动态空间压缩及完整消融矩阵见 [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)
 和 [`ABLATIONS.md`](ABLATIONS.md)。
-压缩后扩充历史覆盖、latent 尾部补齐和 frame-level RoPE slot folding 的待实现方案见
-[`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md)。在该模块实现前，现有
-`yaw_intrinsics` 仍是“先选择 8 个原始 latent，再裁剪并允许 retrieval token 欠填”。
+压缩后扩充历史覆盖、latent 尾部补齐和 frame-level RoPE slot folding 已按
+[`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md) 实现。现有
+`yaw_intrinsics` 仍保留“先选择 8 个原始 latent，再裁剪并允许 retrieval token 欠填”作为
+E0；B4/B5 分别对应 E1/E2。
 
 ## 评测分组
 
@@ -57,7 +60,7 @@ conda activate minwm-fa
 - 使用 MBench-A 官方任务分配，并记录准确的 `samples.jsonl` 校验和。
 - 10 秒/25 秒用例分别使用与 checkpoint 对齐的 40/100 个 latent 位姿；报告时同时列出
   解码后的 157/397 帧长度和官方目标 161/401 帧。
-- B0/B1/B2/B3 必须使用相同的用例分配、checkpoint、latent 长度、分辨率和 seed。
+- B0--B5 必须使用相同的用例分配、checkpoint、latent 长度、分辨率和 seed。
 - 每种方法和每个 seed 分别注册为独立的 MBench `model_id`。
 - 评测前先运行接口约定校验，并记录因缺少 DA3/VLM 产物而跳过的指标。
 
@@ -69,6 +72,8 @@ conda activate minwm-fa
 | 待运行 | B1 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 仅检索 |
 | 待运行 | B2 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 固定新颖性 |
 | 待运行 | B3 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 完整方法 |
+| 待运行 | B4 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 完整 chunk 扩容 |
+| 待运行 | B5 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | latent 尾部补齐 |
 
 禁止用估计值替换“待运行”，表中只记录实测结果。
 
@@ -95,4 +100,4 @@ conda activate minwm-fa
 运行输出位于 `/tmp/minwm_dykv_smoke`，不属于持久化基准产物。该冒烟测试未采集显存峰值，
 因此不报告该数值。该记录对应 commit `d4dcdd2` 的旧三区域布局；切换到连续
 `4 + 8 + 8` 布局后需要重新运行冒烟测试，不能将本行视为新布局的验证结果。正式
-B0/B1/B2/B3 和 MBench 结果仍保持“待运行”，直到完成对应实验。
+B0--B5 和 MBench 结果仍保持“待运行”，直到完成对应实验。

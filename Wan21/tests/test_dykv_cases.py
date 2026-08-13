@@ -23,6 +23,8 @@ class DyKVCasesTest(unittest.TestCase):
                 "yaw_fixed_fov",
                 "yaw_mixed_fov",
                 "yaw_intrinsics",
+                "packed_chunks",
+                "packed_chunks_latent",
             ),
         )
 
@@ -32,6 +34,17 @@ class DyKVCasesTest(unittest.TestCase):
         self.assertEqual(preset.compression_mode, "yaw_fov")
         self.assertEqual(preset.retrieval_fov_source, "intrinsics")
         self.assertEqual(preset.compression_fov_source, "intrinsics")
+        self.assertEqual(preset.packing_mode, "none")
+
+    def test_packed_cases_register_whole_chunk_and_tail_modes(self):
+        self.assertEqual(
+            cases.get_dykv_case("packed_chunks").packing_mode,
+            "whole_chunks",
+        )
+        self.assertEqual(
+            cases.get_dykv_case("packed_chunks_latent").packing_mode,
+            "whole_chunks_and_latents",
+        )
 
     def test_baseline_is_the_only_disabled_case(self):
         disabled = [case.name for case in cases.DYKV_CASES.values() if not case.enabled]

@@ -5,10 +5,10 @@
 所有可直接运行的对照都注册在 `Wan21/dykv_cases.py`。公开接口只增加一个枚举参数
 `--dykv-case`，每个 case 一次性确定压缩方式、检索 FOV 来源和裁剪 FOV 来源，不再暴露
 彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink：baseline 使用
-`fixed sink 4 + rolling local 16`，五个 dyKV case 使用连续的
+`fixed sink 4 + rolling local 16`，七个 dyKV case 使用连续的
 `fixed sink 4 + retrieval 8 + local 8`。
 
-## 2. 当前六个 Case
+## 2. 当前八个 Case
 
 | Case | Sink | dyKV | 检索 FOV | 检索时压缩 | 裁剪 FOV | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -18,6 +18,8 @@
 | `yaw_fixed_fov` | 固定 4 | 开启 | 固定 `60°×35°` | yaw 空间列裁剪 | 固定水平 `60°` | F0，复现固定角度假设 |
 | `yaw_mixed_fov` | 固定 4 | 开启 | 固定 `60°×35°` | yaw 空间列裁剪 | 相机 `K` | F1，隔离检索角度的影响 |
 | `yaw_intrinsics` | 固定 4 | 开启 | 相机 `K` | yaw 空间列裁剪 | 相机 `K` | F2，默认完整方法 |
+| `packed_chunks` | 固定 4 | 开启 | 相机 `K` | `{1,1/2,1/4}` 固定档位 | 相机 `K` | E1，32 原子预算内扩充完整 chunk |
+| `packed_chunks_latent` | 固定 4 | 开启 | 相机 `K` | 固定档位 + 单 latent 尾部 | 相机 `K` | E2，完整 chunk 后继续补齐余量 |
 
 `baseline` 必须不带 `--dykv`；其余 case 通过 `--dykv --dykv-case NAME` 启用。当前 minWM
 默认归一化内参对应约 `89.424°×58.225°`，因此 F0 与 F2 是有效且差异明显的消融。
@@ -33,7 +35,7 @@ LIST_CASES=1 bash Wan21/scripts/inference/run_dykv_cases.sh
 
 ## 3. 普通 Prompt 一键运行
 
-默认顺序运行全部六组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
+默认顺序运行全部八组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
 
 ```bash
 conda activate minwm-fa
@@ -48,7 +50,7 @@ bash Wan21/scripts/inference/run_dykv_cases.sh
 只运行部分 case 时使用逗号分隔的 `CASES`，例如：
 
 ```bash
-CASES=baseline,retrieval_no_compression,yaw_intrinsics \
+CASES=yaw_intrinsics,packed_chunks,packed_chunks_latent \
 OUTPUT_ROOT=output/dykv_core \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
@@ -66,7 +68,7 @@ Runner 会把结果写到 `OUTPUT_ROOT/{case}/`。生成参数仍可用
 conda activate minwm-fa
 MBENCH_ROOT=/absolute/path/to/MBench-A-Setup \
 ASSIGNMENTS=/absolute/path/to/samples.jsonl \
-CASES=baseline,retrieval_no_compression,fixed_novelty,yaw_fixed_fov,yaw_mixed_fov,yaw_intrinsics \
+CASES=baseline,yaw_intrinsics,packed_chunks,packed_chunks_latent \
 NUM_OUTPUT_FRAMES=100 \
 SEED=0 \
 OUTPUT_ROOT=output/mbench_dykv_cases \

@@ -1,7 +1,17 @@
 # 动态压缩后的 Retrieval Region 扩容方案
 
-> 状态：设计方案，尚未实现。当前 `yaw_intrinsics` 仍先选择最多 8 个原始 latent，再执行
-> 精确 FOV 裁剪；不会使用压缩后空余容量继续补入历史。
+> 状态：P1--P4 已实现并通过单元测试，真实 checkpoint 冒烟（P5）待运行。
+> `yaw_intrinsics` 保留原来的 E0 行为；`packed_chunks` 和
+> `packed_chunks_latent` 分别实现 E1、E2，便于直接公平对照。
+
+## 实现入口
+
+- `Wan21/pipeline/dykv_packing.py`：固定档位、32 原子背包、完整 chunk 优先、latent 尾部
+  补齐、虚拟槽位分配和逐层物化；
+- `Wan21/pipeline/dykv_runtime.py`：对全部 FOV 排序候选规划一次，并让所有层复用相同计划；
+- `Wan21/wan/modules/dykv_rope.py`：按 `source_frame_ids + frame_token_lengths +
+  virtual_slot_ids` 对每个 frame segment 独立执行 time-RoPE rebase；
+- `Wan21/dykv_cases.py`：注册 E1/E2，旧 case 均不改变行为。
 
 ## 1. 目标
 
@@ -341,34 +351,34 @@ keep_tiers
 
 ## 7. 分阶段实施计划
 
-### 阶段 P1：量化 crop plan
+### 阶段 P1：量化 crop plan（已完成）
 
 - 在当前精确 yaw crop 之上增加 `{1, 1/2, 1/4, 0}` 档位；
 - 保证每个四帧 chunk 的四个 latent 使用相同档位；
 - 增加左右镜像、0°、半 FOV、边缘重叠和零重叠测试；
 - 记录 `raw_overlap_ratio`、`quantized_keep_tier`、实际列数和 token cost。
 
-### 阶段 P2：固定预算完整 chunk 装箱
+### 阶段 P2：固定预算完整 chunk 装箱（已完成）
 
 - FOV 选择器返回完整排序，不再提前截断到 8 个原始帧；
 - 为全部候选预计算 cost/utility；
 - 用 32 原子离散 DP 选择完整 chunk；
 - 验证 total tokens 不超过 12480，并覆盖 2/4/8 chunk 极端情况。
 
-### 阶段 P3：frame-level RoPE slot folding
+### 阶段 P3：frame-level RoPE slot folding（已完成）
 
 - payload 改为帧级 segment 元数据；
 - `compose_tri_region` 按 segment 单独做 time shift；
 - 增加半压缩两帧共享槽、quarter 四帧共享槽、混合档位和多次调用不累积的测试；
 - 保持 sink/local/query 位置完全不变。
 
-### 阶段 P4：latent 尾部补齐
+### 阶段 P4：latent 尾部补齐（已完成）
 
 - 增加 bank frame reference，不复制 bank 数据；
 - 完整 chunk 无法装入时，按帧级 FOV 分数补齐剩余槽；
 - 验证不重复选择、源时间顺序、跨 block frame 引用和不足候选时的安全欠填充。
 
-### 阶段 P5：真实 checkpoint 冒烟与典型样本对比
+### 阶段 P5：真实 checkpoint 冒烟与典型样本对比（待运行）
 
 - 先跑 24 latent 的左右往返轨迹，确认第三个以上历史 chunk 被实例化；
 - 再使用 `mbench_typical_4.jsonl` 比较当前方法与扩容方法；
@@ -385,6 +395,17 @@ keep_tiers
 | E4 | `{1,1/2,1/4}` 对比 `{1,3/4,1/2,1/4}` | 压缩档位数量消融 |
 | E5 | utility 用 FOV similarity / similarity×sqrt(q) / similarity÷cost | 选择目标消融 |
 | E6 | 每槽最多 1/2/4 个源 latent | 检查时间槽碰撞对质量的影响 |
+
+当前可直接运行 E0、E1、E2：
+
+```bash
+conda activate minwm-fa
+CASES=yaw_intrinsics,packed_chunks,packed_chunks_latent \
+OUTPUT_ROOT=output/dykv_packing_e0_e2 \
+bash Wan21/scripts/inference/run_dykv_cases.sh
+```
+
+E3--E6 仍是后续机制消融，不应标记为已完成实验。
 
 所有实验固定总 retrieval token 上限为 12480，保持 checkpoint、MBench case、seed、轨迹和
 `4+8+8` RoPE 边界一致。报告时必须同时给出：源历史 latent 数、完整 chunk 数、尾部 latent

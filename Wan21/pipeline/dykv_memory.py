@@ -32,6 +32,7 @@ class DyKVConfig:
     rope_train_frames: int = 20
     compression_keep_ratio: float = 0.5
     compression_mode: str = "yaw_fov"
+    packing_mode: str = "none"
     bank_device: str = "cpu"
     fov_samples: int = 8192
     fov_radius: float = 8.0
@@ -59,6 +60,15 @@ class DyKVConfig:
         if self.compression_mode not in {"none", "fixed_novelty", "yaw_fov"}:
             raise ValueError(
                 "dyKV compression_mode must be none, fixed_novelty, or yaw_fov"
+            )
+        if self.packing_mode not in {
+            "none",
+            "whole_chunks",
+            "whole_chunks_and_latents",
+        }:
+            raise ValueError(
+                "dyKV packing_mode must be none, whole_chunks, or "
+                "whole_chunks_and_latents"
             )
         if self.retrieval_fov_source not in {"fixed", "intrinsics"}:
             raise ValueError("dyKV retrieval_fov_source must be fixed or intrinsics")
