@@ -19,18 +19,17 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 
 旧原型暴露了许多彼此独立的开关。minWM-dyKV 改为使用一套完整、固定的预设：
 
-- 注意力布局为 `sink | retrieval | local`；
+- 注意力布局固定为连续的 `sink 4 | retrieval 8 | local 8` latent，三区域之间不留空缺；
 - 被逐出的干净 KV 保存在 CPU 记忆库中；
 - 根据相机 FOV 重叠度对候选记忆排序；
 - 仅在将检索 KV 实例化为注意力输入时执行压缩；
 - 将三个区域统一重映射到模型训练时的时序 RoPE 范围内。
 
-公开推理接口仅保留两个 dyKV 参数：
+公开推理接口仅保留一个 dyKV 参数：
 
 - `--dykv`：启用完整方法；
-- `--dykv-memory-frames`：设置检索记忆帧预算。
 
-其余实现常量集中在一个带类型的配置对象中。这样既能在 Python 层进行消融实验，
+区域大小等实现常量集中在一个带类型的配置对象中。这样既能在 Python 层进行消融实验，
 也不会把每个内部设计都变成命令行超参数。
 
 ## 模块文档

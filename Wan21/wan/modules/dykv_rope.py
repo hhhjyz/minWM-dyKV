@@ -9,24 +9,33 @@ import torch
 
 @dataclass(frozen=True)
 class TriRegionSpec:
-    """Frame counts for ``sink | retrieval | local | current``."""
+    """Frame counts for contiguous ``sink | retrieval | local`` regions.
 
-    sink_frames: int = 1
+    ``local_frames`` includes both the recent cached frames and current query.
+    """
+
+    sink_frames: int = 4
     memory_frames: int = 8
-    local_frames: int = 4
+    local_frames: int = 8
     rope_train_frames: int = 20
 
     def query_start(self, query_frames: int) -> int:
         return self.rope_train_frames - int(query_frames)
 
     def local_start(self, query_frames: int) -> int:
-        return self.query_start(query_frames) - self.local_frames
+        return self.rope_train_frames - self.local_frames
 
     def validate(self, query_frames: int) -> None:
         if query_frames <= 0:
             raise ValueError("tri-region query must contain complete frames")
-        if self.sink_frames + self.memory_frames > self.local_start(query_frames):
+        if query_frames > self.local_frames:
+            raise ValueError("tri-region query exceeds the local RoPE region")
+        retrieval_end = self.sink_frames + self.memory_frames
+        local_start = self.local_start(query_frames)
+        if retrieval_end > local_start:
             raise ValueError("tri-region retrieval and local RoPE ranges overlap")
+        if retrieval_end < local_start:
+            raise ValueError("tri-region retrieval and local RoPE ranges contain a gap")
 
 
 def shift_roped_time(
@@ -118,7 +127,7 @@ def compose_tri_region(
     sink_k = kv_cache["k"][:, :sink_end]
     sink_v = kv_cache["v"][:, :sink_end]
 
-    wanted_local_frames = spec.local_frames + int(query_frames)
+    wanted_local_frames = spec.local_frames
     available_local_tokens = max(0, int(local_end_index) - sink_end)
     local_tokens = min(available_local_tokens, wanted_local_frames * frame_tokens)
     if local_tokens % frame_tokens:

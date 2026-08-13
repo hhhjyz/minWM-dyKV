@@ -26,6 +26,14 @@ def _freqs(length=32):
 
 
 class DyKVRoPETest(unittest.TestCase):
+    def test_default_layout_is_contiguous_four_eight_eight(self):
+        spec = TriRegionSpec()
+        self.assertEqual(spec.sink_frames, 4)
+        self.assertEqual(spec.memory_frames, 8)
+        self.assertEqual(spec.local_frames, 8)
+        self.assertEqual(spec.sink_frames + spec.memory_frames, spec.local_start(4))
+        self.assertEqual(spec.query_start(4), 16)
+
     def test_time_shift_round_trip_preserves_spatial_channels(self):
         tensor = torch.randn(1, 5, 2, 6)
         shifted = shift_roped_time(tensor, _freqs(), 7)
@@ -76,10 +84,10 @@ class DyKVRoPETest(unittest.TestCase):
             device=keys.device,
         )
 
-        self.assertEqual(composed_k.shape[1], 13)
+        self.assertEqual(composed_k.shape[1], 16)
         self.assertEqual(
             composed_v.flatten().tolist(),
-            [0, 100, 101, 102, 103, 12, 13, 14, 15, 16, 17, 18, 19],
+            [0, 1, 2, 3, 100, 101, 102, 103, 12, 13, 14, 15, 16, 17, 18, 19],
         )
         self.assertTrue(cache["k"].equal(original_cache_k))
         self.assertTrue(retrieval_k.equal(original_retrieval_k))
@@ -87,6 +95,10 @@ class DyKVRoPETest(unittest.TestCase):
     def test_overlap_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "overlap"):
             TriRegionSpec(memory_frames=16).validate(query_frames=4)
+
+    def test_gap_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "gap"):
+            TriRegionSpec(memory_frames=4).validate(query_frames=4)
 
 
 if __name__ == "__main__":

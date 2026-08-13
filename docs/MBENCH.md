@@ -41,7 +41,6 @@ MBENCH_ROOT=/absolute/path/to/MBench-A-Setup \
 ASSIGNMENTS=/absolute/path/to/official/samples.jsonl \
 MODEL_ID=minwm_dykv_seed0 \
 NUM_OUTPUT_FRAMES=100 \
-DYKV_MEMORY_FRAMES=8 \
 SEED=0 \
 bash Wan21/scripts/inference/run_mbench_dykv.sh
 ```

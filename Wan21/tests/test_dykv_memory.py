@@ -29,9 +29,25 @@ def _cache(values: torch.Tensor) -> dict:
 
 
 class DyKVMemoryTest(unittest.TestCase):
+    def test_default_config_is_contiguous_four_eight_eight(self):
+        config = DyKVConfig(enabled=True).validate(chunk_frames=4)
+        self.assertEqual(
+            (config.sink_frames, config.memory_frames, config.local_frames),
+            (4, 8, 8),
+        )
+        self.assertEqual(
+            config.sink_frames + config.memory_frames + config.local_frames,
+            config.rope_train_frames,
+        )
+
     def test_config_rejects_unaligned_memory_budget(self):
         config = DyKVConfig(enabled=True, memory_frames=6)
         with self.assertRaisesRegex(ValueError, "divisible"):
+            config.validate(chunk_frames=4)
+
+    def test_config_rejects_a_layout_with_unused_rope_positions(self):
+        config = DyKVConfig(enabled=True, memory_frames=4)
+        with self.assertRaisesRegex(ValueError, "exactly fill"):
             config.validate(chunk_frames=4)
 
     def test_bank_archives_latest_clean_tokens_and_only_exposes_evicted_blocks(self):
@@ -42,10 +58,10 @@ class DyKVMemoryTest(unittest.TestCase):
         )
         self.assertEqual(block.layers[0].k.flatten().tolist(), [8.0, 9.0, 10.0, 11.0])
         self.assertEqual(
-            bank.evicted_candidates(current_frame=7, local_frames=4, sink_frames=1), []
+            bank.evicted_candidates(current_frame=7, recent_frames=4, sink_frames=4), []
         )
         self.assertEqual(
-            bank.evicted_candidates(current_frame=10, local_frames=4, sink_frames=1), [0]
+            bank.evicted_candidates(current_frame=10, recent_frames=4, sink_frames=4), [0]
         )
 
     def test_retrieval_compression_keeps_anchor_and_novel_tokens(self):

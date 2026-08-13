@@ -19,7 +19,6 @@ DATA_PATH="${DATA_PATH:-Wan21/prompts/demos.txt}"
 OUTPUT_FOLDER="${OUTPUT_FOLDER:-output/causal_camera}"
 SP_SIZE="${SP_SIZE:-1}"
 DYKV="${DYKV:-0}"
-DYKV_MEMORY_FRAMES="${DYKV_MEMORY_FRAMES:-8}"
 NUM_OUTPUT_FRAMES="${NUM_OUTPUT_FRAMES:-20}"
 SEED="${SEED:-0}"
 
@@ -47,7 +46,7 @@ echo "  Output:     $OUTPUT_FOLDER"
 
 DYKV_ARGS=()
 if [ "$DYKV" = "1" ]; then
-  DYKV_ARGS+=(--dykv --dykv-memory-frames "$DYKV_MEMORY_FRAMES")
+  DYKV_ARGS+=(--dykv)
 fi
 
 export SP_SIZE=$SP_SIZE

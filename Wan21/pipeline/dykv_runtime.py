@@ -70,7 +70,7 @@ class DyKVRuntime:
         bank = self.bank(branch)
         candidates = bank.evicted_candidates(
             current_frame=current_frame,
-            local_frames=self.config.local_frames,
+            recent_frames=self.config.local_frames - self.chunk_frames,
             sink_frames=self.config.sink_frames,
         )
         started = time.perf_counter()

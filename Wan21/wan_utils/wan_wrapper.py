@@ -122,7 +122,7 @@ class WanDiffusionWrapper(torch.nn.Module):
             sink_size=0,
             dykv_enabled=False,
             dykv_memory_frames=8,
-            dykv_local_frames=4,
+            dykv_local_frames=8,
             dykv_rope_train_frames=20,
             use_camera=False
     ):

@@ -33,16 +33,21 @@
 
 ## 公开配置
 
-命令行仅暴露 `--dykv` 和 `--dykv-memory-frames`。固定方法预设如下：
+命令行仅暴露 `--dykv`，区域大小不再作为公开超参数。固定方法预设如下：
 
 | 配置项 | 值 |
 | --- | ---: |
-| sink 帧数 | 1 |
-| 当前块之前保留的近期帧数 | 4 |
+| sink 区域 | 4 latent 帧 |
+| retrieval 区域 | 8 latent 帧 |
+| local 区域 | 8 latent 帧（4 帧 recent + 4 帧 current） |
 | 检索压缩保留比例 | 0.5 |
 | 记忆库设备 | CPU |
 
-当预算无法按模型块大小对齐，或无法放入训练时的 RoPE 范围时，
+三区域在 20 帧训练窗口中连续排列为 `[0,4) + [4,12) + [12,20)`，不存在保留空隙。
+在线 KV cache 的物理容量为 12 latent 帧，用于保存 4 帧 sink 和完整的 8 帧 local；
+retrieval KV 仍存放于 CPU 记忆库，仅在注意力计算时加入。
+
+当预算无法按模型块大小对齐，或三区域无法放入训练时的 RoPE 范围时，
 `DyKVConfig.validate` 会直接拒绝该配置。
 
 ## 验证
@@ -56,7 +61,7 @@
 
 ```bash
 conda activate minwm-fa
-DYKV=1 DYKV_MEMORY_FRAMES=8 \
+DYKV=1 \
   bash Wan21/scripts/inference/run_infer_causal_camera.sh
 ```
 

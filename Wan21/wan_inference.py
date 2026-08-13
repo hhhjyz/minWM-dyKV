@@ -30,7 +30,6 @@ parser.add_argument("--sp_size", type=int, default=1, help="Sequence parallel si
 parser.add_argument("--trajectory", type=str, default=None, help="Camera trajectory string (e.g., 'w*19' for camera control)")
 parser.add_argument("--trajectory_path", type=str, default=None, help="Path to trajectory file (one trajectory string per line, aligned with data_path)")
 parser.add_argument("--dykv", action="store_true", help="Enable the complete dyKV long-horizon memory preset")
-parser.add_argument("--dykv-memory-frames", type=int, default=8, help="Raw latent-frame budget for retrieved dyKV memory")
 args = parser.parse_args()
 
 # Initialize distributed inference
@@ -85,17 +84,16 @@ if args.dykv:
     chunk_frames = int(config.get("num_frame_per_block", 1))
     if chunk_frames != 4:
         raise ValueError("dyKV currently targets the four-frame causal minWM checkpoint")
-    if args.dykv_memory_frames <= 0 or args.dykv_memory_frames % chunk_frames:
-        raise ValueError("--dykv-memory-frames must be a positive multiple of 4")
     config.dykv_enabled = True
-    config.dykv_memory_frames = int(args.dykv_memory_frames)
-    # The live cache holds sink + recent + current. Retrieved K/V lives in the
-    # separate CPU bank and is materialized directly into the attention window.
-    config.model_kwargs.sink_size = 1
-    config.model_kwargs.local_attn_size = 1 + 4 + chunk_frames
+    config.dykv_memory_frames = 8
+    # Fixed contiguous 4 + 8 + 8 layout: the live cache physically holds the
+    # four-frame sink plus the eight-frame local region (recent + current).
+    # Retrieved K/V lives in the CPU bank until attention materialization.
+    config.model_kwargs.sink_size = 4
+    config.model_kwargs.local_attn_size = 4 + 8
     config.model_kwargs.dykv_enabled = True
-    config.model_kwargs.dykv_memory_frames = int(args.dykv_memory_frames)
-    config.model_kwargs.dykv_local_frames = 4
+    config.model_kwargs.dykv_memory_frames = 8
+    config.model_kwargs.dykv_local_frames = 8
     config.model_kwargs.dykv_rope_train_frames = 20
 else:
     config.dykv_enabled = False

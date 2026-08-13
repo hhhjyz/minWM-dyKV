@@ -19,15 +19,16 @@ import torch
 class DyKVConfig:
     """Single coherent dyKV preset.
 
-    Only ``memory_frames`` is intended to be user-adjustable.  The remaining
-    values define the method and are kept together so internal assumptions can
-    be validated in one place.
+    Region sizes define the method and are kept together so the contiguous
+    4 + 8 + 8 layout can be validated in one place. They are not public CLI
+    hyperparameters.
     """
 
     enabled: bool = False
     memory_frames: int = 8
-    sink_frames: int = 1
-    local_frames: int = 4
+    sink_frames: int = 4
+    # The local region includes both recent cached frames and the current query.
+    local_frames: int = 8
     rope_train_frames: int = 20
     compression_keep_ratio: float = 0.5
     bank_device: str = "cpu"
@@ -45,16 +46,19 @@ class DyKVConfig:
             raise ValueError(
                 "dyKV memory_frames must be divisible by the model chunk size"
             )
-        if self.sink_frames < 0 or self.local_frames < 0:
-            raise ValueError("dyKV sink/local frame counts cannot be negative")
+        if self.sink_frames < 0 or self.local_frames < chunk_frames:
+            raise ValueError(
+                "dyKV sink frames cannot be negative and the local region must "
+                "contain the current chunk"
+            )
         if not 0.0 < self.compression_keep_ratio <= 1.0:
             raise ValueError("dyKV compression_keep_ratio must be in (0, 1]")
-        occupied = self.sink_frames + self.memory_frames + self.local_frames + chunk_frames
-        if occupied > self.rope_train_frames:
+        occupied = self.sink_frames + self.memory_frames + self.local_frames
+        if occupied != self.rope_train_frames:
             raise ValueError(
-                "dyKV regions exceed the trained RoPE range: "
+                "dyKV regions must exactly fill the trained RoPE range: "
                 f"sink({self.sink_frames}) + memory({self.memory_frames}) + "
-                f"local({self.local_frames}) + current({chunk_frames}) > "
+                f"local_including_current({self.local_frames}) != "
                 f"rope_train_frames({self.rope_train_frames})"
             )
         return self
@@ -215,12 +219,12 @@ class DyKVBank:
         self,
         *,
         current_frame: int,
-        local_frames: int,
+        recent_frames: int,
         sink_frames: int,
     ) -> list[int]:
         """Return blocks no longer represented by sink or recent live cache."""
 
-        local_start = max(int(sink_frames), int(current_frame) - int(local_frames))
+        local_start = max(int(sink_frames), int(current_frame) - int(recent_frames))
         return [
             index
             for index, block in enumerate(self.blocks)
