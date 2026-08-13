@@ -45,6 +45,7 @@ ASSIGNMENTS=/absolute/path/to/official/samples.jsonl \
 MODEL_ID=minwm_dykv_seed0 \
 NUM_OUTPUT_FRAMES=100 \
 DYKV_MEMORY_FRAMES=8 \
+SEED=0 \
 bash Wan21/scripts/inference/run_mbench_dykv.sh
 ```
 
@@ -52,6 +53,8 @@ Useful filters are `SUBSETS`, `CONDITIONS`, and `LIMIT`. If `ASSIGNMENTS` is omi
 the adapter uses `models/hy_worldplay/samples.jsonl`, the official MBench-A
 assignment source. Pass an explicit manifest for the four-case demo or any custom
 case set.
+The adapter rejects a 10s case unless `NUM_OUTPUT_FRAMES=40`, and a 25s case unless
+`NUM_OUTPUT_FRAMES=100`, preventing a mislabeled benchmark package.
 
 Generation writes `generation_manifest.jsonl`. Packaging then creates:
 

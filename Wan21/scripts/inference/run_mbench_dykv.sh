@@ -7,7 +7,8 @@ cd "$PROJECT_ROOT"
 : "${MBENCH_ROOT:?Set MBENCH_ROOT to an MBench-A dataset directory}"
 WORK_DIR="${WORK_DIR:-output/mbench_adapter}"
 OUTPUT_FOLDER="${OUTPUT_FOLDER:-output/mbench_dykv}"
-MODEL_ID="${MODEL_ID:-minwm_dykv}"
+SEED="${SEED:-0}"
+MODEL_ID="${MODEL_ID:-minwm_dykv_seed${SEED}}"
 NUM_OUTPUT_FRAMES="${NUM_OUTPUT_FRAMES:-100}"
 DYKV_MEMORY_FRAMES="${DYKV_MEMORY_FRAMES:-8}"
 SUBSETS="${SUBSETS:-}"
@@ -34,6 +35,7 @@ OUTPUT_FOLDER="$OUTPUT_FOLDER" \
 NUM_OUTPUT_FRAMES="$NUM_OUTPUT_FRAMES" \
 DYKV=1 \
 DYKV_MEMORY_FRAMES="$DYKV_MEMORY_FRAMES" \
+SEED="$SEED" \
 bash Wan21/scripts/inference/run_infer_causal_camera.sh
 
 python Wan21/scripts/evaluation/mbench_adapter.py package \

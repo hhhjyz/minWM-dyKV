@@ -47,6 +47,23 @@ class MBenchAdapterTest(unittest.TestCase):
             self.assertTrue(all(row["num_output_frames"] == 100 for row in rows))
             self.assertEqual(len((work_dir / "prompts.txt").read_text().splitlines()), 2)
 
+    def test_prepare_rejects_condition_length_mismatch(self):
+        dataset_root = RESEARCH_ROOT / "MBench" / "demo" / "dataset" / "a"
+        assignments = dataset_root / "models" / "matrix_game_2" / "samples.jsonl"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(ValueError, "requires 100"):
+                adapter.prepare(
+                    argparse.Namespace(
+                        dataset_root=dataset_root,
+                        work_dir=pathlib.Path(temp_dir),
+                        assignments=assignments,
+                        subsets="",
+                        conditions="",
+                        num_output_frames=40,
+                        limit=1,
+                    )
+                )
+
     def test_package_writes_model_centric_samples(self):
         demo_root = RESEARCH_ROOT / "MBench" / "demo" / "dataset" / "a"
         with tempfile.TemporaryDirectory() as temp_dir:

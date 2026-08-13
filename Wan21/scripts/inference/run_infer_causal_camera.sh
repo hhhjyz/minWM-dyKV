@@ -21,6 +21,7 @@ SP_SIZE="${SP_SIZE:-1}"
 DYKV="${DYKV:-0}"
 DYKV_MEMORY_FRAMES="${DYKV_MEMORY_FRAMES:-8}"
 NUM_OUTPUT_FRAMES="${NUM_OUTPUT_FRAMES:-20}"
+SEED="${SEED:-0}"
 
 # ===== Camera Trajectory =====
 TRAJECTORY="${TRAJECTORY:-w*19}"
@@ -63,5 +64,6 @@ torchrun \
   --data_path "$DATA_PATH" \
   --num_output_frames "$NUM_OUTPUT_FRAMES" \
   --sp_size $SP_SIZE \
+  --seed "$SEED" \
   "${DYKV_ARGS[@]}" \
   $TRAJ_ARGS

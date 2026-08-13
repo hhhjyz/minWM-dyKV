@@ -44,6 +44,14 @@ def action_from_condition(condition_id: str) -> str:
     raise ValueError(f"invalid MBench-A condition_id: {condition_id}")
 
 
+def expected_latent_frames(condition_id: str) -> int:
+    if condition_id.endswith("_10s"):
+        return 40
+    if condition_id.endswith("_25s"):
+        return 100
+    raise ValueError(f"invalid MBench-A condition_id: {condition_id}")
+
+
 def trajectory_for_action(action: str, num_output_frames: int) -> str:
     steps = int(num_output_frames) - 1
     if steps <= 0:
@@ -123,6 +131,12 @@ def prepare(args: argparse.Namespace) -> None:
             continue
         if condition_filter and condition not in condition_filter:
             continue
+        expected_frames = expected_latent_frames(condition)
+        if int(args.num_output_frames) != expected_frames:
+            raise ValueError(
+                f"condition {condition} requires {expected_frames} checkpoint-aligned "
+                f"latent frames, got {args.num_output_frames}"
+            )
         action = action_from_condition(condition)
         rows.append(
             {
