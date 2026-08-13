@@ -30,9 +30,12 @@ The trajectory parser supports `n*N` and scaled steps such as `j@2.5*40`. Every
 adapter trajectory is checked by tests to contain exactly the requested number of
 latent camera poses.
 
-MBench lengths describe decoded video frames. Wan's VAE expands time by four, so the
-recommended minWM latent lengths are 40 for 10-second/161-frame cases and 100 for
-25-second/401-frame cases. The default runner uses 100.
+MBench lengths describe decoded video frames. Wan's VAE expands time by four, while
+the causal checkpoint requires a multiple of four latent frames. The closest lower
+valid lengths are therefore 40 latent frames (157 decoded frames) for the official
+10-second/161-frame condition and 100 latent frames (397 decoded frames) for the
+25-second/401-frame condition. The default runner uses 100; record this small
+duration difference in benchmark reports.
 
 ## Generate and package
 
@@ -46,9 +49,9 @@ bash Wan21/scripts/inference/run_mbench_dykv.sh
 ```
 
 Useful filters are `SUBSETS`, `CONDITIONS`, and `LIMIT`. If `ASSIGNMENTS` is omitted,
-the adapter uses the first existing `models/*/samples.jsonl` as the benchmark case
-assignment. This is convenient for the four-case MBench demo; formal experiments
-should pass the official assignment explicitly.
+the adapter uses `models/hy_worldplay/samples.jsonl`, the official MBench-A
+assignment source. Pass an explicit manifest for the four-case demo or any custom
+case set.
 
 Generation writes `generation_manifest.jsonl`. Packaging then creates:
 

@@ -265,7 +265,9 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
         Ks = torch.from_numpy(Ks_np).unsqueeze(0).to(device=device, dtype=torch.bfloat16)
     traj_suffix = "_" + traj_str.replace("*", "").replace(",", "") if traj_str else ""
     safe_prompt = prompt[:100].replace("/", "_").replace("\\", "_")
-    output_path = os.path.join(args.output_folder, f'{safe_prompt}{traj_suffix}.mp4')
+    output_path = os.path.join(
+        args.output_folder, f'{idx:05d}_{safe_prompt}{traj_suffix}.mp4'
+    )
 
     if args.i2v:
         assert config.num_frame_per_block == 1, "Current I2V only supports the frame-wise model."

@@ -82,12 +82,13 @@ def load_assignments(path: Path) -> list[dict]:
 
 
 def default_assignments(dataset_root: Path) -> Path:
-    candidates = sorted((dataset_root / "models").glob("*/samples.jsonl"))
-    if not candidates:
+    official = dataset_root / "models" / "hy_worldplay" / "samples.jsonl"
+    if not official.is_file():
         raise FileNotFoundError(
-            "no MBench assignment manifest found; pass --assignments explicitly"
+            "official MBench-A assignments were not found at "
+            f"{official}; pass --assignments explicitly"
         )
-    return candidates[0]
+    return official
 
 
 def sample_caption(dataset_root: Path, subset: str, sample_id: str) -> str:
@@ -104,8 +105,16 @@ def prepare(args: argparse.Namespace) -> None:
     if read_dataset_id(dataset_root) != "mbencha":
         raise ValueError("minWM camera cases require an MBench-A (mbencha) dataset")
     assignment_path = args.assignments.resolve() if args.assignments else default_assignments(dataset_root)
-    subset_filter = set(args.subsets.split(",")) if args.subsets else set()
-    condition_filter = set(args.conditions.split(",")) if args.conditions else set()
+    subset_filter = (
+        {value.strip() for value in args.subsets.split(",") if value.strip()}
+        if args.subsets
+        else set()
+    )
+    condition_filter = (
+        {value.strip() for value in args.conditions.split(",") if value.strip()}
+        if args.conditions
+        else set()
+    )
     rows = []
     for assignment in load_assignments(assignment_path):
         subset = assignment["subset"]

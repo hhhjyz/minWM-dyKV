@@ -77,6 +77,7 @@ class DyKVRuntimeTest(unittest.TestCase):
         self.assertEqual(payloads[0]["k"].shape[1], 8)
         event = runtime.summary()["events"][0]
         self.assertEqual(event["selected_frame_starts"], [4, 12])
+        self.assertEqual(event["ranked_candidate_block_ids"][:2], [1, 3])
         self.assertEqual(event["retrieved_tokens_per_layer"], 8)
 
 

@@ -36,7 +36,8 @@ Record the following for every run:
 ## MBench protocol
 
 - Use MBench-A official assignments; record the exact `samples.jsonl` checksum.
-- Use 40 latent poses for 10s/161-frame cases and 100 for 25s/401-frame cases.
+- Use the checkpoint-aligned 40/100 latent poses for 10s/25s cases and report
+  their decoded 157/397-frame lengths alongside the official 161/401 targets.
 - Keep case assignment, checkpoint, latent length, resolution, and seeds identical
   between B0/B1/B2.
 - Register each method and seed as a distinct MBench `model_id`.

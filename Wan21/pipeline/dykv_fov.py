@@ -167,7 +167,11 @@ def select_fov_blocks(
     vertical_degrees: float = 35.0,
     radius: float = 8.0,
 ) -> tuple[list[int], list[int], list[float]]:
-    """Select the closest complete historical blocks under a frame budget."""
+    """Select closest blocks and return their complete FOV ranking.
+
+    The selected indices are chronological for attention composition. Ranked
+    indices and distances remain score-aligned for diagnostics.
+    """
 
     scored: list[tuple[int, float]] = []
     for index in candidate_indices:
