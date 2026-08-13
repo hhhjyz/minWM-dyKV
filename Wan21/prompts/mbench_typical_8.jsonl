@@ -1,0 +1,8 @@
+{"subset":"causal","sample_id":"a00037_00237","condition_id":"left_then_right_25s"}
+{"subset":"causal","sample_id":"a00533_00678","condition_id":"right_then_left_25s"}
+{"subset":"environment","sample_id":"sample_001_bcd37a7f","condition_id":"left_then_right_25s"}
+{"subset":"environment","sample_id":"sample_166_5ff17586","condition_id":"right_then_left_25s"}
+{"subset":"human","sample_id":"mem_openhumanvid_079f6efe68b1fb34517ef78bbb7e0bb066477fc1f5eae5cdbcc9b14ba023e2b7","condition_id":"left_then_right_25s"}
+{"subset":"human","sample_id":"mem_openhumanvid_852002d435de2eb08124f2db92b982743836a02733476284f3befcc4563f1a6c","condition_id":"right_then_left_25s"}
+{"subset":"object","sample_id":"sample_007_7b421919","condition_id":"left_then_right_25s"}
+{"subset":"object","sample_id":"sample_194_a04d54a4","condition_id":"right_then_left_25s"}

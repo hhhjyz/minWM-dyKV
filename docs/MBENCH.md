@@ -5,6 +5,8 @@ minWM-dyKV 支持 MBench-A 的动作条件用例。MBench-T 使用随时间变�
 
 当前官方任务清单的动作分布，以及基于 yaw/FOV 的动态空间压缩适合性分析，见
 [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)。
+只做小规模视频对比时，使用项目提供的四/八样本清单，见
+[`MBENCH_TYPICAL_SAMPLES.md`](MBENCH_TYPICAL_SAMPLES.md)。
 
 ## 适配内容
 
