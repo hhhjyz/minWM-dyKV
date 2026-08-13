@@ -86,6 +86,7 @@ if args.dykv:
         raise ValueError("dyKV currently targets the four-frame causal minWM checkpoint")
     config.dykv_enabled = True
     config.dykv_memory_frames = 8
+    config.dykv_compression_mode = str(config.get("dykv_compression_mode", "yaw_fov"))
     # Fixed contiguous 4 + 8 + 8 layout: the live cache physically holds the
     # four-frame sink plus the eight-frame local region (recent + current).
     # Retrieved K/V lives in the CPU bank until attention materialization.

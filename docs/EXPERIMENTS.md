@@ -35,6 +35,8 @@ conda activate minwm-fa
 
 当前 B1/B2 的固定 KV 布局为连续的 `4 + 8 + 8` latent：4 帧 sink、8 帧 retrieval、
 8 帧 local（4 帧 recent + 4 帧 current），正好覆盖 20 帧 RoPE 训练窗口。
+动态空间压缩及完整消融矩阵见 [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)
+和 [`ABLATIONS.md`](ABLATIONS.md)。
 
 ## 评测分组
 

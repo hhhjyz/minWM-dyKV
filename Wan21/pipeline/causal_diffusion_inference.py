@@ -51,6 +51,7 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
             DyKVConfig(
                 enabled=bool(getattr(args, "dykv_enabled", False)),
                 memory_frames=int(getattr(args, "dykv_memory_frames", 8)),
+                compression_mode=str(getattr(args, "dykv_compression_mode", "yaw_fov")),
             ),
             chunk_frames=self.num_frame_per_block,
         )
@@ -92,6 +93,13 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                 (batch_size, num_frames, num_channels, height, width). It is normalized to be in the range [0, 1].
         """
         batch_size, num_frames, num_channels, height, width = noise.shape
+        patch_size = self.generator.model.patch_size
+        spatial_shape = (
+            int(height) // int(patch_size[1]),
+            int(width) // int(patch_size[2]),
+        )
+        if self.dykv.config.enabled and spatial_shape[0] * spatial_shape[1] != self.frame_seq_length:
+            raise ValueError("dyKV spatial grid does not match frame token count")
         self.dykv.reset()
         if self.dykv.config.enabled and viewmats is None:
             raise ValueError("--dykv requires a camera trajectory for FOV retrieval")
@@ -215,6 +223,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                     frame_count=1,
                     frame_tokens=self.frame_seq_length,
                     viewmats=vm_slice,
+                    Ks=ks_slice,
+                    spatial_shape=spatial_shape,
                 )
                 self.dykv.archive(
                     "negative",
@@ -223,6 +233,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                     frame_count=1,
                     frame_tokens=self.frame_seq_length,
                     viewmats=vm_slice,
+                    Ks=ks_slice,
+                    spatial_shape=spatial_shape,
                 )
                 current_start_frame += 1
                 cache_start_frame += 1
@@ -268,6 +280,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                     frame_count=self.num_frame_per_block,
                     frame_tokens=self.frame_seq_length,
                     viewmats=vm_chunk,
+                    Ks=ks_chunk,
+                    spatial_shape=spatial_shape,
                 )
                 self.dykv.archive(
                     "negative",
@@ -276,6 +290,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                     frame_count=self.num_frame_per_block,
                     frame_tokens=self.frame_seq_length,
                     viewmats=vm_chunk,
+                    Ks=ks_chunk,
+                    spatial_shape=spatial_shape,
                 )
                 current_start_frame += self.num_frame_per_block
                 cache_start_frame += self.num_frame_per_block
@@ -296,6 +312,7 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                 "positive",
                 current_frame=current_start_frame,
                 current_viewmats=vm_chunk,
+                current_Ks=ks_chunk,
                 frame_tokens=self.frame_seq_length,
                 target_device=noise.device,
             )
@@ -303,6 +320,7 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                 "negative",
                 current_frame=current_start_frame,
                 current_viewmats=vm_chunk,
+                current_Ks=ks_chunk,
                 frame_tokens=self.frame_seq_length,
                 target_device=noise.device,
             )
@@ -396,6 +414,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                 frame_count=current_num_frames,
                 frame_tokens=self.frame_seq_length,
                 viewmats=vm_chunk,
+                Ks=ks_chunk,
+                spatial_shape=spatial_shape,
             )
             self.dykv.archive(
                 "negative",
@@ -404,6 +424,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                 frame_count=current_num_frames,
                 frame_tokens=self.frame_seq_length,
                 viewmats=vm_chunk,
+                Ks=ks_chunk,
+                spatial_shape=spatial_shape,
             )
 
             # Step 3.4: update the start and end frame indices

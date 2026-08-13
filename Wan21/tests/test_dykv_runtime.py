@@ -1,4 +1,5 @@
 import importlib.util
+import math
 import pathlib
 import sys
 import types
@@ -32,6 +33,22 @@ def _w2c(x):
     c2w = torch.eye(4)
     c2w[0, 3] = float(x)
     return torch.linalg.inv(c2w)
+
+
+def _yaw_w2c(degrees):
+    angle = math.radians(float(degrees))
+    cosine, sine = math.cos(angle), math.sin(angle)
+    c2w = torch.eye(4)
+    c2w[:3, :3] = torch.tensor(
+        [[cosine, 0.0, sine], [0.0, 1.0, 0.0], [-sine, 0.0, cosine]]
+    )
+    return torch.linalg.inv(c2w)
+
+
+def _intrinsics(frames=4):
+    fx = 0.5 / math.tan(math.radians(30.0))
+    K = torch.tensor([[fx, 0.0, 0.5], [0.0, 1.0, 0.5], [0.0, 0.0, 1.0]])
+    return torch.stack([K] * frames).unsqueeze(0)
 
 
 def _cache(value, tokens=4):
@@ -79,6 +96,39 @@ class DyKVRuntimeTest(unittest.TestCase):
         self.assertEqual(event["selected_frame_starts"], [4, 12])
         self.assertEqual(event["ranked_candidate_block_ids"][:2], [1, 3])
         self.assertEqual(event["retrieved_tokens_per_layer"], 8)
+
+    def test_runtime_reports_yaw_crop_diagnostics(self):
+        config = memory.DyKVConfig(enabled=True, fov_samples=2048)
+        runtime = runtime_module.DyKVRuntime(config, chunk_frames=4)
+        historical_poses = torch.stack([_yaw_w2c(0.0)] * 4).unsqueeze(0)
+        for start in (0, 4, 8, 12, 16):
+            runtime.archive(
+                "main",
+                [_cache(start, tokens=48)],
+                frame_start=start,
+                frame_count=4,
+                frame_tokens=12,
+                viewmats=historical_poses,
+                Ks=_intrinsics(),
+                spatial_shape=(2, 6),
+            )
+
+        current = torch.stack([_yaw_w2c(30.0)] * 4).unsqueeze(0)
+        payloads = runtime.retrieve(
+            "main",
+            current_frame=20,
+            current_viewmats=current,
+            current_Ks=_intrinsics(),
+            frame_tokens=12,
+            target_device="cpu",
+        )
+
+        self.assertEqual(payloads[0]["compression_modes"], ["yaw_fov", "yaw_fov"])
+        self.assertEqual(payloads[0]["kept_tokens"], 48)
+        event = runtime.summary()["events"][0]
+        self.assertEqual(event["raw_tokens_per_layer"], 96)
+        self.assertEqual(event["retrieved_tokens_per_layer"], 48)
+        self.assertEqual(event["kept_tokens_per_frame"], [[6] * 4, [6] * 4])
 
 
 if __name__ == "__main__":

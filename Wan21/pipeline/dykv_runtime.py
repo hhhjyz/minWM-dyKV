@@ -42,6 +42,8 @@ class DyKVRuntime:
         frame_count: int,
         frame_tokens: int,
         viewmats,
+        Ks=None,
+        spatial_shape: tuple[int, int] | None = None,
     ) -> None:
         if not self.config.enabled:
             return
@@ -51,6 +53,8 @@ class DyKVRuntime:
             frame_count=frame_count,
             frame_tokens=frame_tokens,
             viewmats=viewmats,
+            Ks=Ks,
+            spatial_shape=spatial_shape,
         )
 
     def retrieve(
@@ -61,6 +65,7 @@ class DyKVRuntime:
         current_viewmats,
         frame_tokens: int,
         target_device: torch.device | str,
+        current_Ks=None,
     ):
         if not self.config.enabled or current_frame < self.config.rope_train_frames:
             return None
@@ -90,7 +95,13 @@ class DyKVRuntime:
             chunk_frames=self.chunk_frames,
             frame_tokens=frame_tokens,
             keep_ratio=self.config.compression_keep_ratio,
+            compression_mode=self.config.compression_mode,
+            current_viewmats=current_viewmats,
+            current_Ks=current_Ks,
         ) if selected else None
+        if not payloads:
+            payloads = None
+        diagnostics = payloads[0] if payloads else {}
         self.events.append(
             {
                 "branch": branch,
@@ -101,8 +112,15 @@ class DyKVRuntime:
                 ],
                 "selected_block_ids": [bank.blocks[index].block_id for index in selected],
                 "selected_frame_starts": [bank.blocks[index].frame_start for index in selected],
+                "materialized_frame_starts": diagnostics.get("src_frame_ids", []),
                 "distances": distances,
                 "retrieved_tokens_per_layer": int(payloads[0]["k"].shape[1]) if payloads else 0,
+                "raw_tokens_per_layer": int(diagnostics.get("raw_tokens", 0)),
+                "compression_modes": diagnostics.get("compression_modes", []),
+                "kept_tokens_per_frame": diagnostics.get("kept_tokens_per_frame", []),
+                "kept_columns_per_frame": diagnostics.get("kept_columns_per_frame", []),
+                "delta_yaw_degrees": diagnostics.get("delta_yaw_degrees", []),
+                "horizontal_fov_degrees": diagnostics.get("horizontal_fov_degrees", []),
                 "seconds": time.perf_counter() - started,
             }
         )
