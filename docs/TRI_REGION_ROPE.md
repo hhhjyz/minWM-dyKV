@@ -1,51 +1,43 @@
-# Tri-region temporal RoPE
+# 三区域时序 RoPE
 
-## Layout
+## 布局
 
-Once generation moves beyond the 20-frame training horizon, dyKV maps every
-attention operand back into a fixed virtual timeline:
+生成长度超过训练时的 20 帧窗口后，dyKV 会把所有注意力操作数映射回固定的虚拟时间轴：
 
 ```text
 0         1 ........ 8       9..11       12 ... 15       16 ... 19
 [ sink ]  [ retrieval ]      [ gap ]     [ recent local ] [ current ]
 ```
 
-The gap is intentional. It separates selected long-term memory from the immediate
-local trajectory and leaves the final current-query positions identical for every
-long-horizon step.
+其中的空隙是有意保留的：它把选中的长期记忆与当前附近的局部轨迹分开，并使每个长时
+生成步骤的当前 query 始终占据相同的末尾位置。
 
-Before frame 20, minWM uses its ordinary monotonic RoPE and dyKV retrieval is not
-activated. At and after the boundary:
+在第 20 帧之前，minWM 使用原本单调递增的 RoPE，dyKV 检索不启用。到达边界后：
 
-- sink K remains at its original position 0;
-- selected memory chunks are packed chronologically from position 1;
-- the four recent frames are mapped to positions 12--15;
-- a four-frame current query and its K are mapped to positions 16--19.
+- sink K 保持在原始位置 0；
+- 选中的记忆块按时间顺序从位置 1 开始紧密排列；
+- 最近 4 帧映射到位置 12--15；
+- 当前 4 帧 query 及其 K 映射到位置 16--19。
 
-## Rebase operation
+## 重映射操作
 
-Cached K and the current Q have already received RoPE. Rebasing therefore multiplies
-only their complex temporal channels by the relative rotation for
-`target_position - source_position`. Spatial height/width channels are unchanged.
-All operations clone their inputs, preventing repeated denoising calls from
-accumulating rotations in the cache or memory bank.
+cache 中的 K 和当前 Q 已经应用过 RoPE。因此，重映射只需在复数形式的时序通道上乘以
+`target_position - source_position` 对应的相对旋转，空间高/宽通道保持不变。所有操作
+都会先复制输入，避免多次去噪调用在 cache 或记忆库中累积旋转。
 
-Compressed retrieval chunks are rebased as units. Each retained token keeps the
-temporal offset encoded before compression, while the chunk's source origin moves
-to its assigned virtual origin.
+压缩后的检索块以块为单位重映射。每个保留 token 维持压缩前编码的帧内时序偏移，
+同时将该块的源起点移动到指定的虚拟起点。
 
-## Invariants
+## 不变量
 
-- every live-cache slice is frame-aligned;
-- query, recent, retrieval, and sink ranges cannot overlap;
-- raw selected memory cannot exceed the configured memory-frame budget;
-- shifts beyond the available RoPE frequency table fail explicitly;
-- warm-up and activation use the same 20-frame boundary.
+- 在线 cache 的每个切片都必须按帧对齐；
+- query、recent、retrieval 和 sink 的位置范围不能重叠；
+- 被选中的原始记忆不能超过配置的记忆帧预算；
+- 超出可用 RoPE 频率表的位移必须显式报错；
+- 预热和正式启用使用同一个 20 帧边界。
 
-The implementation is based on the prior minWM tri-region prototype and
-Anchor-Forcing's bounded long-horizon RoPE policy, with one fixed layout instead of
-separate sink/retrieval/rebase switches.
+本实现参考旧版 minWM 三区域原型和 Anchor-Forcing 的有界长时 RoPE 策略，使用一套固定
+布局，不再分别暴露 sink、retrieval 和 rebase 开关。
 
-The normal RoPE attention path uses all three regions. minWM's additional PRoPE
-branch remains its original local-cache path; camera geometry drives selection but
-archived PRoPE tensors are not duplicated in the memory bank.
+常规 RoPE 注意力路径使用全部三个区域。minWM 额外的 PRoPE 分支仍保持原有的局部 cache
+路径；相机几何信息只负责检索选择，存档时不会在记忆库中重复保存 PRoPE 张量。

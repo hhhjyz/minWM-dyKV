@@ -1,44 +1,37 @@
-# FOV retrieval
+# FOV 检索
 
-## Metric
+## 度量方法
 
-dyKV uses the retrieval policy from HY-WorldPlay. For a current camera pose `C` and
-historical pose `H`, it samples points in a radius-8 sphere around `C` and computes:
+dyKV 采用 HY-WorldPlay 的检索策略。对于当前相机位姿 `C` 和历史位姿 `H`，算法在以
+`C` 为中心、半径为 8 的球体内采样，并计算：
 
 ```text
 overlap(C, H) = count(points in FOV(C) and FOV(H)) / count(points in FOV(C))
 distance(C, H) = 1 - overlap(C, H)
 ```
 
-The angular frustum uses a 60-degree horizontal and 35-degree vertical field of
-view. Historical points farther than radius 8 from the historical camera are not
-counted.
+视锥采用水平 60 度、垂直 35 度的视场角。相对于历史相机距离超过 8 的历史点不计入重叠。
 
-For chunk retrieval, each current frame is compared with the first and midpoint
-poses of a historical chunk. Those two distances are averaged, followed by an
-average over current frames. Complete chunks are selected by ascending distance
-until the raw memory-frame budget is filled.
+检索块时，将每个当前帧分别与历史块的首帧位姿和中间帧位姿比较。先对这两个距离取平均，
+再对所有当前帧取平均。算法按距离升序选择完整历史块，直到填满原始记忆帧预算。
 
-## Deterministic probes
+## 确定性探针
 
-HY-WorldPlay draws random Monte Carlo points. dyKV replaces that sampling call with
-a deterministic golden-angle sphere sequence with volume-corrected radii. This
-preserves the geometric estimator while ensuring that:
+HY-WorldPlay 使用随机蒙特卡洛采样点。dyKV 将其替换为确定性的黄金角球面序列，并对半径
+进行体积分布校正。该修改保留原几何估计方式，同时保证：
 
-- candidates receive comparable scores within a run;
-- seeds used for video generation do not alter retrieval decisions;
-- unit tests and experiment reruns are reproducible.
+- 同一次运行中的候选得分可比较；
+- 视频生成使用的 seed 不会改变检索决策；
+- 单元测试与重复实验可复现。
 
-The probe tensor is generated once per inference run and reused across blocks.
+探针张量在每次推理开始时只生成一次，后续块重复使用。
 
-## Candidate boundary
+## 候选边界
 
-FOV scoring is applied only after `DyKVBank.evicted_candidates` removes blocks still
-present in the live sink or recent cache. Blocks without camera matrices are skipped
-instead of silently falling back to a second retrieval metric.
+`DyKVBank.evicted_candidates` 会先排除仍存在于在线 sink 或 recent cache 中的块，之后才
+进行 FOV 评分。缺少相机矩阵的块会被跳过，而不会静默回退到第二种检索度量。
 
-## Validation
+## 验证
 
-Tests verify deterministic bounded probes, near-complete overlap for identical
-cameras, near-zero overlap for an opposite-facing camera, loop-closure preference,
-chronological payload order, and strict adherence to the memory-frame budget.
+测试覆盖确定且有界的探针、相同相机下接近完整的重叠、相反朝向相机下接近零的重叠、
+闭环路径偏好、检索载荷的时序顺序，以及严格遵守记忆帧预算。

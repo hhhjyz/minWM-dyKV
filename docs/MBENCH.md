@@ -1,13 +1,13 @@
-# MBench-A adaptation
+# MBench-A 适配
 
-minWM-dyKV supports MBench-A's action-conditioned cases. MBench-T uses changing
-text segments over time and is outside the current minWM inference contract.
+minWM-dyKV 支持 MBench-A 的动作条件用例。MBench-T 使用随时间变化的文本片段，超出了
+当前 minWM 推理接口的支持范围。
 
-## What is adapted
+## 适配内容
 
-`mbench_adapter.py prepare` reads the benchmark's model-centric assignment manifest
-and joins each `subset/sample_id/condition_id` with the caption in
-`samples/{subset}/{sample_id}/sample.json`. It writes three aligned files:
+`mbench_adapter.py prepare` 读取基准中以模型为中心的任务分配清单，并将每个
+`subset/sample_id/condition_id` 与 `samples/{subset}/{sample_id}/sample.json` 中的
+caption 对齐，随后写出三个相互对应的文件：
 
 ```text
 work_dir/
@@ -16,28 +16,25 @@ work_dir/
 └── cases.jsonl
 ```
 
-The action mapping is:
+动作映射如下：
 
-| MBench-A action | minWM trajectory |
+| MBench-A 动作 | minWM 轨迹 |
 | --- | --- |
-| left then right | yaw left, yaw right, optional static pad |
-| right then left | yaw right, yaw left, optional static pad |
-| forward then backward | forward, backward, optional static pad |
-| left/right 360, 720, 1080 | scaled yaw completing the requested angle |
-| static | zero camera motion |
+| 先左转再右转 | 左偏航、右偏航，必要时补静止帧 |
+| 先右转再左转 | 右偏航、左偏航，必要时补静止帧 |
+| 先前进再后退 | 前进、后退，必要时补静止帧 |
+| 向左/右旋转 360、720、1080 度 | 按比例缩放偏航步长以完成指定角度 |
+| 静止 | 相机不运动 |
 
-The trajectory parser supports `n*N` and scaled steps such as `j@2.5*40`. Every
-adapter trajectory is checked by tests to contain exactly the requested number of
-latent camera poses.
+轨迹解析器支持 `n*N`，也支持 `j@2.5*40` 这类缩放步长。测试会检查适配器生成的每条
+轨迹都恰好包含指定数量的 latent 相机位姿。
 
-MBench lengths describe decoded video frames. Wan's VAE expands time by four, while
-the causal checkpoint requires a multiple of four latent frames. The closest lower
-valid lengths are therefore 40 latent frames (157 decoded frames) for the official
-10-second/161-frame condition and 100 latent frames (397 decoded frames) for the
-25-second/401-frame condition. The default runner uses 100; record this small
-duration difference in benchmark reports.
+MBench 的长度指解码后视频帧数。Wan VAE 在时间维度上放大 4 倍，而因果 checkpoint
+要求 latent 帧数是 4 的倍数。因此，官方 10 秒/161 帧条件采用最接近且较小的有效长度
+40 latent 帧（解码后 157 帧），官方 25 秒/401 帧条件采用 100 latent 帧（解码后
+397 帧）。默认运行器使用 100；基准报告中必须注明这一小段时长差异。
 
-## Generate and package
+## 生成与打包
 
 ```bash
 MBENCH_ROOT=/absolute/path/to/MBench-A-Setup \
@@ -49,14 +46,13 @@ SEED=0 \
 bash Wan21/scripts/inference/run_mbench_dykv.sh
 ```
 
-Useful filters are `SUBSETS`, `CONDITIONS`, and `LIMIT`. If `ASSIGNMENTS` is omitted,
-the adapter uses `models/hy_worldplay/samples.jsonl`, the official MBench-A
-assignment source. Pass an explicit manifest for the four-case demo or any custom
-case set.
-The adapter rejects a 10s case unless `NUM_OUTPUT_FRAMES=40`, and a 25s case unless
-`NUM_OUTPUT_FRAMES=100`, preventing a mislabeled benchmark package.
+运行前应先执行 `conda activate minwm-fa`。可用筛选项包括 `SUBSETS`、`CONDITIONS` 和
+`LIMIT`。若省略 `ASSIGNMENTS`，适配器使用 MBench-A 官方任务来源
+`models/hy_worldplay/samples.jsonl`；运行四用例示例或自定义用例集时应显式传入清单。
+当 10 秒用例的 `NUM_OUTPUT_FRAMES` 不为 40，或 25 秒用例不为 100 时，适配器会拒绝
+执行，防止生成标签错误的基准包。
 
-Generation writes `generation_manifest.jsonl`. Packaging then creates:
+生成阶段写出 `generation_manifest.jsonl`，打包后得到：
 
 ```text
 MBench-A-Setup/models/{MODEL_ID}/
@@ -64,12 +60,12 @@ MBench-A-Setup/models/{MODEL_ID}/
 └── outputs/{subset}/{sample_id}/{condition_id}/video.mp4
 ```
 
-Videos are relative symlinks by default; use `LINK_MODE=hardlink` or `copy` when the
-dataset will move to another filesystem.
+默认使用相对软链接保存视频；若数据集随后会移动到其他文件系统，请设置
+`LINK_MODE=hardlink` 或 `LINK_MODE=copy`。
 
-## Evaluate
+## 评测
 
-From the MBench environment:
+在同一个 `minwm-fa` 环境中安装 MBench 依赖并执行：
 
 ```bash
 mbench validate "$MBENCH_ROOT" \
@@ -83,14 +79,12 @@ mbench eval "$MBENCH_ROOT" \
   --output runs/minwm_dykv_seed0
 ```
 
-Spatial, object-geometry, rendering-style, and camera-interaction metrics require
-the benchmark's external DA3 artifact at the path declared in `dataset.yaml`.
-State-progress metrics may additionally require the configured VLM judge. These
-artifacts are evaluation inputs and are deliberately not fabricated by the adapter.
+空间、物体几何、渲染风格和相机交互指标需要 `dataset.yaml` 所声明路径下的外部 DA3
+产物。状态进展指标还可能需要已配置的 VLM 裁判模型。这些内容属于评测输入，适配器不会
+伪造它们。
 
-## Current limitation
+## 当前限制
 
-The four-frame dyKV checkpoint path is T2V, so MBench captions are used as generation
-conditions. The benchmark's first-frame assets are preserved in the dataset for
-evaluation but are not injected into generation. Report this distinction alongside
-results when comparing against first-frame-conditioned world models.
+四帧 dyKV checkpoint 路径属于 T2V，因此生成条件使用 MBench caption。基准的首帧素材
+仍保留在数据集中供评测使用，但不会注入生成过程。与首帧条件世界模型比较时，必须随结果
+一同报告这一差异。

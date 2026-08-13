@@ -1,69 +1,64 @@
-# KV memory and retrieval-time compression
+# KV 记忆与检索时压缩
 
-## Goal
+## 目标
 
-The live causal cache is still fixed-size and fast. Before a clean generated block
-can be rolled out of that cache, dyKV copies its per-layer K/V to a CPU-side bank.
-Only blocks that have left both the sink and recent-local regions are eligible for
-retrieval, preventing duplicate attention to the same frame.
+在线因果 KV cache 仍保持固定大小和较低开销。在一个已完成去噪的干净生成块即将被
+逐出在线 cache 前，dyKV 会把它在每个网络层中的 K/V 复制到 CPU 记忆库。只有同时
+离开 sink 区域和近期 local 区域的块才可参与检索，从而避免同一帧被重复加入注意力。
 
-## Lifecycle
+## 生命周期
 
-1. The model finishes denoising a block.
-2. A final clean forward pass commits that block to the live KV cache.
-3. `DyKVBank.archive_clean_block` copies the new tail slice for every transformer
-   layer to the bank device.
-4. Later blocks query `evicted_candidates`; FOV selection chooses from this set.
-5. `materialize` moves only selected K/V to the attention device and compresses it.
-6. The attention layer consumes the payload as the middle retrieval region.
+1. 模型完成一个块的去噪。
+2. 最后一次干净前向将该块写入在线 KV cache。
+3. `DyKVBank.archive_clean_block` 将每个 Transformer 层新增的尾部切片复制到记忆库设备。
+4. 后续块通过 `evicted_candidates` 获取候选集合，再由 FOV 检索从中选择记忆。
+5. `materialize` 仅把选中的 K/V 移到注意力设备，并在此时执行压缩。
+6. 注意力层将该载荷作为中间的 retrieval 区域使用。
 
-The bank stores uncompressed clean K/V. This makes selection reversible and avoids
-spending compression time or quality on history that is never retrieved.
+记忆库始终保存未压缩的干净 K/V。这样检索选择可逆，也不会在从未被检索的历史内容上
+浪费压缩时间或损失信息。
 
-## Compression
+## 压缩方法
 
-Compression follows WorldKV's anchor-plus-novelty rule. For each generated chunk:
+压缩采用 WorldKV 的“锚点 + 新颖性”规则。对于每个生成块：
 
-- retain the first latent frame in full as the anchor;
-- compute the mean anchor key across spatial tokens and attention heads;
-- rank each later frame's tokens by cosine similarity to that centroid;
-- retain the least-similar half, which represents content not already covered by
-  the anchor.
+- 完整保留第一帧 latent 作为锚点；
+- 在空间 token 和注意力头维度上计算锚点 key 的均值；
+- 按各后续帧 token 与该中心的余弦相似度排序；
+- 保留相似度最低的一半，以表示尚未被锚点覆盖的内容。
 
-With a four-frame chunk and ratio `0.5`, the stored 4-frame block is materialized as
-`1 + 3 * 0.5 = 2.5` frame-equivalents of attention tokens. The raw memory-frame
-budget is unchanged; compression changes the attention cost, not which frames were
-selected.
+对于 4 帧块和 `0.5` 的保留比例，存储的 4 帧在实例化后相当于
+`1 + 3 * 0.5 = 2.5` 帧注意力 token。原始记忆帧预算不变；压缩只改变注意力开销，
+不改变被选择的帧。
 
-## Public configuration
+## 公开配置
 
-The CLI exposes only `--dykv` and `--dykv-memory-frames`. The fixed method preset is:
+命令行仅暴露 `--dykv` 和 `--dykv-memory-frames`。固定方法预设如下：
 
-| Setting | Value |
+| 配置项 | 值 |
 | --- | ---: |
-| sink frames | 1 |
-| recent frames before current chunk | 4 |
-| retrieval compression keep ratio | 0.5 |
-| bank device | CPU |
+| sink 帧数 | 1 |
+| 当前块之前保留的近期帧数 | 4 |
+| 检索压缩保留比例 | 0.5 |
+| 记忆库设备 | CPU |
 
-`DyKVConfig.validate` rejects budgets that do not align to the model chunk size or
-cannot fit in the trained RoPE range.
+当预算无法按模型块大小对齐，或无法放入训练时的 RoPE 范围时，
+`DyKVConfig.validate` 会直接拒绝该配置。
 
-## Validation
+## 验证
 
-Unit tests cover block-tail capture, eviction eligibility, anchor preservation,
-novelty selection, chronological payload order, and the guarantee that retrieval
-compression does not mutate the lossless bank.
+单元测试覆盖块尾捕获、逐出候选资格、锚点保留、新颖性选择、检索载荷的时序顺序，
+以及检索压缩不得修改无损记忆库这一约束。
 
-## Running
+## 运行方式
 
-Use the ordinary causal camera runner with the complete preset enabled:
+先进入统一环境，再启用完整预设运行常规因果相机推理：
 
 ```bash
+conda activate minwm-fa
 DYKV=1 DYKV_MEMORY_FRAMES=8 \
   bash Wan21/scripts/inference/run_infer_causal_camera.sh
 ```
 
-The output folder contains `dykv_summaries.jsonl`, with one record per prompt. Each
-record includes bank byte counts, selected block IDs, source frame starts,
-compressed token counts, and retrieval wall time.
+输出目录包含 `dykv_summaries.jsonl`，每个 prompt 对应一条记录。记录包括记忆库字节数、
+选中块 ID、源起始帧、压缩后 token 数以及检索耗时。

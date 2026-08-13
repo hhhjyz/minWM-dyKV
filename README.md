@@ -1,9 +1,8 @@
-# 🌍 minWM-dyKV: Dynamic World Memory for minWM
+# 🌍 minWM-dyKV：面向 minWM 的动态世界记忆
 
-> **dyKV extension.** This repository keeps minWM's training and inference stack,
-> and adds a focused long-horizon memory path: `sink | retrieval | local` KV,
-> retrieval-time compression, bounded tri-region RoPE, camera-FOV retrieval, and
-> MBench case support. Design and experiment records live in [`docs/`](docs/README.md).
+> **dyKV 扩展。** 本仓库保留 minWM 的训练与推理框架，并新增一条简洁的长时记忆路径：
+> `sink | retrieval | local` 三区域 KV、检索时压缩、有界三区域 RoPE、基于相机
+> FOV 的检索，以及 MBench 用例支持。设计说明与实验记录见 [`docs/`](docs/README.md)。
 
 >  ***A full-stack framework and tutorial for newcomers, rather than a specific model.***
 
@@ -126,8 +125,8 @@ Intended audience: graduate students, independent researchers, and junior labs t
 ## 🛠️ Installation
 
 ```bash
-conda create -n minwm python=3.10 -y 
-conda activate minwm
+conda create -n minwm-fa python=3.10 -y
+conda activate minwm-fa
 pip install -r requirements.txt
 pip install flash-attn --no-build-isolation
 export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
