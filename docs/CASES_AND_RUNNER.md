@@ -39,9 +39,10 @@ case，也没有固定角度回退。当前 query 缺少合法 `K` 时直接报�
 前驱压缩三个 case 的公式、退化路径、装箱与 RoPE 语义见
 [`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
 从归档、候选过滤、当前-query FOV 排序、前驱旋转压缩到 RoPE rebase 的端到端代码流程，
-以及当前 BF16 位姿导致几何 fallback 的实测限制，见
-[`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。正式运行
-旋转裁剪实验时必须检查 `compression_modes`，不能只根据 case 名称判断四档路径已触发。
+以及 FP32 相机几何修复和旧 BF16 产物边界，见
+[`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。当前
+runner 已使用修复后的入口，但正式旋转实验仍必须检查 `compression_modes`，不能只根据
+case 名称判断四档路径已触发。
 
 可随时列出注册表：
 

@@ -92,6 +92,13 @@ def prope_qkv(
     assert q.shape == k.shape == v.shape
     assert viewmats.shape == (batch, cameras, 4, 4)
     assert Ks is None or Ks.shape == (batch, cameras, 3, 3)
+    # Camera tensors stay FP32 in the inference pipeline so dyKV can preserve
+    # accurate geometry in its CPU archive.  PRoPE intentionally retains its
+    # previous low-precision compute path by casting only these local copies to
+    # the feature dtype at the operator boundary.
+    viewmats = viewmats.to(device=q.device, dtype=q.dtype)
+    if Ks is not None:
+        Ks = Ks.to(device=q.device, dtype=q.dtype)
     # assert seqlen == cameras * patches_x * patches_y
 
     apply_fn_q, apply_fn_kv, apply_fn_o = _prepare_apply_fns_all_dim(

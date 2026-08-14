@@ -43,13 +43,14 @@ HY-WorldPlay 使用随机蒙特卡洛采样点。dyKV 将其替换为确定性�
 
 探针张量在每次推理开始时只生成一次，后续块重复使用。
 
-## 当前相机精度限制
+## 相机几何精度
 
-推理入口目前把 `viewmats/Ks` 转为 BF16。FOV overlap 内部转为 FP32，通常仍可完成候选
-排序；但后续 yaw 空间裁剪的纯旋转检查使用更严格的 `1e-4` 容差，BF16 量化误差会使真实
-`j/l` 旋转进入 novelty fallback。完整影响与日志证据见
-[`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。因此，
-“FOV 检索完成”与“旋转角度裁剪实际触发”必须分别通过日志验证。
+推理入口当前使用 FP32 保存权威 `viewmats/Ks`，FOV 排序、CPU bank 归档和 yaw 空间裁剪
+共享这份无 BF16 预量化的几何数据。PRoPE 只在自身算子入口把局部副本转换成 Q/K/V dtype，
+保持原有低精度模型计算路径。该修复解决了纯 `j/l` 旋转因 BF16 矩阵误差进入 novelty
+fallback 的问题；旧视频不会自动改变，仍需重新生成并核验 `compression_modes`。完整修复
+和日志证据见
+[`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。
 
 ## 候选边界
 

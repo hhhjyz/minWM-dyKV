@@ -40,11 +40,12 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 
 ## 模块文档
 
-- [`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)：从无损 KV 归档、当前-query FOV 检索、前驱旋转四档压缩、动态装箱到 RoPE rebase 的完整代码流程，并记录当前 BF16 几何精度限制；
+- [`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)：从无损 KV 归档、当前-query FOV 检索、前驱旋转四档压缩、动态装箱到 RoPE rebase 的完整代码流程，以及 FP32 几何修复与旧 BF16 产物边界；
 - [`KV_MEMORY.md`](KV_MEMORY.md)：逐出存储、检索载荷与检索时压缩；
 - [`FIXED_SINK.md`](FIXED_SINK.md)：所有 case 的固定四帧 sink 与公平缓存布局；
 - [`TRI_REGION_ROPE.md`](TRI_REGION_ROPE.md)：有界时序位置布局；
 - [`FOV_RETRIEVAL.md`](FOV_RETRIEVAL.md)：兼容 HY-WorldPlay 的 FOV 评分与选择；
+- [`RETRIEVAL_NO_COMPRESSION_DIAGNOSIS.md`](RETRIEVAL_NO_COMPRESSION_DIAGNOSIS.md)：典型样本最后六个 chunk 的无压缩检索日志、预算/RoPE 检查及低于 baseline 的策略原因分析；
 - [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)：基于相机视场的动态空间 token 裁剪、MBench 适合性与实施计划；
 - [`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md)：压缩后扩充历史 chunk、latent 尾部补齐与可变载荷 RoPE 方案；
 - [`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)：当前-query 检索、前驱新增角域四档压缩、`3/4` 装箱与 coverage 回填；

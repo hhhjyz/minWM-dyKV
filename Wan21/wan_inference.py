@@ -13,7 +13,7 @@ import json
 
 from wan_utils.dataset import TextDataset, TextImagePairDataset
 from wan_utils.misc import set_seed
-from wan_utils.camera_trajectory import parse_trajectory
+from wan_utils.camera_trajectory import make_camera_tensors
 from dykv_cases import DYKV_CASES, resolve_dykv_case
 
 from demo_utils.memory import gpu, get_cuda_free_memory_gb, DynamicSwapInstaller
@@ -283,17 +283,24 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
     elif args.trajectory:
         traj_str = args.trajectory
     if traj_str:
-        import numpy as np
-        viewmats_np = parse_trajectory(traj_str)
-        if len(viewmats_np) != args.num_output_frames:
+        # Keep the authoritative camera geometry in FP32.  dyKV archives these
+        # tensors for FOV/yaw calculations; quantizing them to BF16 here loses
+        # enough rotation-matrix precision to make pure yaw fail the 1e-4
+        # geometry check.  PRoPE casts its private compute copies to Q/K/V dtype.
+        viewmats, Ks = make_camera_tensors(
+            traj_str,
+            fx=0.5,
+            fy=0.5,
+            cx=0.5,
+            cy=0.5,
+            device=device,
+            dtype=torch.float32,
+        )
+        if viewmats.shape[1] != args.num_output_frames:
             raise ValueError(
-                f"trajectory for prompt {idx} has {len(viewmats_np)} poses, "
+                f"trajectory for prompt {idx} has {viewmats.shape[1]} poses, "
                 f"but --num_output_frames={args.num_output_frames}"
             )
-        fx, fy, cx, cy = 0.5, 0.5, 0.5, 0.5
-        Ks_np = np.array([[[fx, 0, cx], [0, fy, cy], [0, 0, 1]]] * len(viewmats_np), dtype=np.float32)
-        viewmats = torch.from_numpy(viewmats_np).unsqueeze(0).to(device=device, dtype=torch.bfloat16)
-        Ks = torch.from_numpy(Ks_np).unsqueeze(0).to(device=device, dtype=torch.bfloat16)
     traj_suffix = "_" + traj_str.replace("*", "").replace(",", "") if traj_str else ""
     safe_prompt = prompt[:100].replace("/", "_").replace("\\", "_")
     output_path = os.path.join(

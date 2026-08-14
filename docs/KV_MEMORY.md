@@ -133,6 +133,7 @@ DYKV=1 DYKV_CASE=predecessor_query_backfill \
 输出目录包含 `dykv_summaries.jsonl`，每个 prompt 对应一条记录。记录包括记忆库字节数、
 选中块 ID、源起始帧、压缩后 token 数以及检索耗时。
 
-当前真实推理存在 BF16 位姿无法通过 `1e-4` 纯 yaw 检查的问题，已有旋转视频主要走上述
-predecessor 50% fallback。算法设计、实际偏差和完整日志判读见
+当前推理已让 dyKV 的相机位姿保持 FP32，并在 PRoPE 算子边界单独转换模型计算副本，解决
+BF16 位姿无法通过 `1e-4` 纯 yaw 检查的问题。已有旧旋转视频仍主要是 predecessor 50%
+fallback，必须重新生成。算法设计、修复和完整日志判读见
 [`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。

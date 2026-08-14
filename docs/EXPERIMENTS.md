@@ -58,14 +58,15 @@ minWM-back 固定比例 A--D 对照由 B1/B6/B7/B8 构成，具体预算与适�
 B9--B11 的压缩参考系、四档规则和 32 原子精确装箱见
 [`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
 
-### 当前旋转实验阻塞项
+### 历史精度阻塞与重新运行要求
 
-真实推理目前将相机 `viewmats/Ks` 转为 BF16，而纯 yaw 检查使用 `1e-4` 容差。已有
-`predecessor_chunks` 典型样本日志全部记录为 `predecessor_fixed_novelty_fallback` 和
-`keep_tier=0.5`，最大只装入 4 个 chunk；这些产物只能视为链路冒烟，不能登记为 B9--B11
-四档旋转压缩结果。正式运行前应修复几何精度，并以日志出现
+旧推理入口曾把相机 `viewmats/Ks` 量化为 BF16，已有 `predecessor_chunks` 典型样本因此
+全部记录为 `predecessor_fixed_novelty_fallback` 和 `keep_tier=0.5`，最大只装入 4 个 chunk。
+当前版本已让 dyKV 几何保持 FP32，并在 PRoPE 内部单独转换计算副本；对应回归测试已确认
+`j*7` 进入 `predecessor_incremental_yaw` 的 `1/4` 档。旧产物仍只能视为链路冒烟，不能
+登记为 B9--B11 四档结果。新实验必须使用全新输出目录，并以日志出现
 `predecessor_incremental_yaw`、非空 `incremental_fov_ratios` 和预期四档为验收条件。
-完整原因与判读方法见
+完整修复与判读方法见
 [`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。
 
 ## 评测分组
@@ -74,6 +75,16 @@ B9--B11 的压缩参考系、四档规则和 32 原子精确装箱见
 2. 长单调路径：检查检索是否会破坏新视角的稳定性。
 3. MBench 用例：报告基准原生指标及逐用例产物。
 4. 资源画像：记录显存峰值、CPU 记忆库字节数、检索耗时和总延迟。
+
+### `retrieval_no_compression` 典型样本日志诊断
+
+对 `output/mbench_typical_4_crop_compare_seed0/retrieval_no_compression` 的 4 个典型样本进行
+了尾部日志检查。四个样本共 80 次 retrieval event，全部使用完整 12480 token，且 80/80
+次都选择两个时间相邻 chunk；最后一步全部选择 source starts `[4,8]`。没有发现 token
+超预算、sink/source 重复或 RoPE 越界，但存在 recent 被早期历史替换、检索与 sink 冗余、
+FOV 同分偏向更旧状态以及动态内容陈旧等策略风险。完整日志和结论见
+[`RETRIEVAL_NO_COMPRESSION_DIAGNOSIS.md`](RETRIEVAL_NO_COMPRESSION_DIAGNOSIS.md)。该诊断不等于
+B1 正式质量指标已经完成，核心结果表仍保持“待运行”。
 
 ## MBench 实验规范
 
@@ -104,6 +115,26 @@ B9--B11 的压缩参考系、四档规则和 32 原子精确装箱见
 禁止用估计值替换“待运行”，表中只记录实测结果。
 
 ## 实现冒烟测试
+
+### 当前 FP32 相机链路与 predecessor 冒烟
+
+该记录验证本文档所在提交的 FP32 几何修复和连续 `4+8+8` predecessor 链路，不代表
+MBench 分数。
+
+| 字段 | 实测值 |
+| --- | --- |
+| 日期 / commit | 2026-08-14 / 本文档所在提交 |
+| 环境 | `minwm-fa` |
+| Checkpoint | Action2V DMD `model.pt` |
+| Prompt / seed | 1 条合成的红色木屋闭环 prompt / 0 |
+| 轨迹 | `j*10,l*10,n*3` |
+| 长度 | 24 latent 帧 |
+| 第 20 帧候选 / 选中 | 候选 block `[1,2,3]`；选中 source starts `[4,8,12]` |
+| 几何路径 | 12/12 frame segment 为 `predecessor_incremental_yaw`，没有 fallback |
+| 四档与预算 | 12/12 为 `1/4`；使用 12/32 atoms；每层 4680 retrieval token |
+| 输出 | `/tmp/minwm_dykv_fp32_predecessor_smoke`（临时实现验收产物） |
+
+### 历史冒烟
 
 以下是历史冒烟记录，只验证当时提交的实现链路，不代表 MBench 分数，也不验证当前连续
 `4+8+8`、动态装箱或 predecessor 路径。短闭环轨迹曾跨过第 20 帧启用边界。

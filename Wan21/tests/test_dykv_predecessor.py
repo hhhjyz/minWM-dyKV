@@ -10,6 +10,7 @@ import torch
 
 WAN21_ROOT = pathlib.Path(__file__).resolve().parents[1]
 PIPELINE_ROOT = WAN21_ROOT / "pipeline"
+sys.path.insert(0, str(WAN21_ROOT))
 package = types.ModuleType("dykv_predecessor_test_pipeline")
 package.__path__ = [str(PIPELINE_ROOT)]
 sys.modules[package.__name__] = package
@@ -27,6 +28,7 @@ def _load(name):
 memory = _load("dykv_memory")
 _load("dykv_packing")
 predecessor = _load("dykv_predecessor")
+from wan_utils.camera_trajectory import make_camera_tensors  # noqa: E402
 
 
 def _yaw_w2c(degrees):
@@ -67,6 +69,36 @@ def _bank_with_yaws(yaws):
 
 
 class DyKVPredecessorTest(unittest.TestCase):
+    def test_float32_inference_trajectory_uses_yaw_geometry(self):
+        viewmats, intrinsics = make_camera_tensors(
+            "j*7", fx=0.5, fy=0.5, cx=0.5, cy=0.5, dtype=torch.float32
+        )
+        bank = memory.DyKVBank(device="cpu")
+        for block_index in range(2):
+            start = block_index * 4
+            bank.archive_clean_block(
+                [_cache(block_index)],
+                frame_start=start,
+                frame_count=4,
+                frame_tokens=16,
+                viewmats=viewmats[:, start:start + 4],
+                Ks=intrinsics[:, start:start + 4],
+                spatial_shape=(2, 8),
+            )
+
+        candidate = predecessor.build_predecessor_candidate(
+            bank, block_index=1, distance=0.1, frame_tokens=16
+        )
+
+        self.assertIsNone(candidate.fallback_reason)
+        self.assertEqual(candidate.keep_tier, 0.25)
+        self.assertTrue(
+            all(
+                frame.compression_mode == "predecessor_incremental_yaw"
+                for frame in candidate.chunk_frames
+            )
+        )
+
     def test_user_defined_four_tier_boundaries(self):
         values = (0.0, 0.2499, 0.25, 0.4999, 0.5, 0.7499, 0.75, 1.0)
         expected = (0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0)

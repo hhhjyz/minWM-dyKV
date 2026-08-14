@@ -179,9 +179,10 @@ conda run -n minwm-fa python -m unittest discover -s Wan21/tests -v
 耗时和 MBench 指标仍应按 `EXPERIMENTS.md` 标记为“待运行”。当前版本也没有为平移建立
 depth-aware 可见性模型，平移仍走固定 novelty fallback。
 
-此外，真实推理入口当前将 `viewmats/Ks` 转成 BF16，而 `_pure_yaw_delta` 的旋转矩阵容差为
-`1e-4`。BF16 纯 yaw 的实测矩阵误差约 `1.5e-3`，已有 predecessor 视频因而全部进入
-`predecessor_fixed_novelty_fallback` 的 `1/2` 档。四档边界和左右镜像单元测试虽然通过，
-但修复相机几何精度并在真实日志看到 `predecessor_incremental_yaw` 之前，不能宣称视频
-已经验证四档角度裁剪。完整调用链、影响和验收字段见
+旧推理入口曾将 `viewmats/Ks` 转成 BF16，约 `1.5e-3` 的纯 yaw 矩阵误差无法通过
+`_pure_yaw_delta` 的 `1e-4` 容差，已有 predecessor 视频因而全部进入
+`predecessor_fixed_novelty_fallback`。当前版本已让 dyKV 相机几何保持 FP32，并只在 PRoPE
+算子内部转换私有副本；与推理入口一致的 `j*7` 回归测试已进入
+`predecessor_incremental_yaw` 的 `1/4` 档。旧视频仍需重新生成，正式实验也必须核验日志。
+完整调用链、修复和验收字段见
 [`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。

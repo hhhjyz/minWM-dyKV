@@ -21,11 +21,11 @@
 CPU 记忆库始终保存未压缩的完整 K/V。空间 token 只在某个历史块真正被检索并准备送入
 注意力时裁剪，因此当前方法属于 **retrieval-time compression**，不是写入时压缩。
 
-> **当前实测限制：** 算法设计和单元测试支持 `1/4、1/2、3/4、1` 四档，但实际推理入口
-> 将 `viewmats/Ks` 转为 BF16；纯 yaw 检查仍使用 `1e-4` 容差。BF16 旋转矩阵的典型误差
-> 约为 `1.5e-3`，会把本应合法的 `j/l` 旋转判为非纯 yaw。已有
-> `predecessor_chunks` 视频日志全部进入 `predecessor_fixed_novelty_fallback`，档位为
-> `1/2`，最多选择 4 个 chunk。正式评价四档旋转压缩前必须先修复该精度问题。
+> **精度问题已修复，旧视频需要重跑：** 旧推理入口曾将 `viewmats/Ks` 转为 BF16，导致
+> 纯 yaw 矩阵约 `1.5e-3` 的量化误差无法通过 `1e-4` 几何检查。当前版本让 dyKV 的权威
+> 相机数据全程保持 FP32，仅在 PRoPE 算子内部把私有计算副本转换成 Q/K/V dtype。新增
+> 回归测试已确认 `j*7` 进入 `predecessor_incremental_yaw` 的 `1/4` 档。不过，修复前生成的
+> `predecessor_chunks` 视频日志仍全部是 `1/2` fallback，不能自动视为修复后的四档结果。
 
 ## 2. 术语、形状与固定预算
 
@@ -392,11 +392,11 @@ fallback 的四帧全部为 50%，所以一个 chunk 等效占 2 个 latent，8-
 
 如果候选连 `(30,52)` 空间形状都不具备，规划器无法建立原子化 token 索引，会直接跳过。
 
-## 10. 当前 BF16 纯旋转误判问题
+## 10. BF16 纯旋转误判及当前修复
 
 ### 10.1 问题路径
 
-当前 `Wan21/wan_inference.py` 将相机数据转换为：
+旧版 `Wan21/wan_inference.py` 曾将相机数据转换为：
 
 ```python
 viewmats = ...to(device=device, dtype=torch.bfloat16)
@@ -414,7 +414,7 @@ center_error   = 0
 
 所以失败原因不是轨迹包含平移，而是 BF16 旋转矩阵无法通过过严的正交性检查。
 
-### 10.2 对当前实验的影响
+### 10.2 对旧实验的影响
 
 已有日志
 `output/mbench_typical_4_predecessor/predecessor_chunks/dykv_summaries.jsonl` 显示：
@@ -425,22 +425,41 @@ compression_modes               : 全部 predecessor_fixed_novelty_fallback
 观察到的最大 selected_block 数 : 4
 ```
 
-这意味着这些视频验证了 CPU bank、FOV 排序、fallback、装箱、RoPE 和生成链路能够运行，
+这意味着这些旧视频验证了 CPU bank、FOV 排序、fallback、装箱、RoPE 和生成链路能够运行，
 但**不能**作为四档旋转裁剪效果实验。旧的 `yaw_intrinsics` 和 `packed_chunks*` 也调用同一
 纯 yaw 检查，因此实际视频同样需要检查 `compression_modes`，不能仅依据 case 名称断言
 几何裁剪已发生。
 
-### 10.3 后续修复原则
+### 10.3 当前修复方式
 
-正式实验前应完成并验证以下之一：
+当前实现没有放宽 `_pure_yaw_delta` 的 `1e-4` 几何标准，而是修复精度来源：
 
-1. 相机几何链路始终保留 FP32，模型需要 BF16 时只转换进入模型的副本；这是优先方案。
-2. 在 yaw 分解前将近似旋转矩阵投影回 `SO(3)`，再检查剩余 pitch/roll 和相机中心。
-3. 仅调大容差时必须基于 BF16 误差上界增加平移、pitch、roll 反例测试，避免把非 yaw
-   错判为 yaw。
+1. `wan_inference.py` 使用 `make_camera_tensors(..., dtype=torch.float32)` 构造权威
+   `viewmats/Ks`；
+2. pipeline 切片、FOV 检索和 CPU bank 归档继续使用这些 FP32 张量；
+3. `prope_qkv` 在算子入口只把局部 `viewmats/Ks` 副本转换为 Q/K/V dtype，因此 PRoPE
+   保持原有 BF16 计算路径，不会反向污染 dyKV 几何数据；
+4. 回归测试使用与推理入口相同的 `j*7` 轨迹和 `K`，确认候选没有 fallback，档位为
+   `1/4`，模式为 `predecessor_incremental_yaw`；
+5. 原有平移 fallback 测试继续通过，说明修复没有靠放宽容差把平移错误接纳为 yaw。
 
-修复验收不能只看单元测试，还必须检查真实 checkpoint 日志出现
-`predecessor_incremental_yaw` 和 `keep_tiers=0.25/0.5/0.75/1.0`。
+除单元测试外，修复后还使用真实 Action2V DMD checkpoint 完成了 24-latent 短闭环冒烟：
+
+```text
+trajectory                  = j*10,l*10,n*3
+retrieval event             = current_frame 20
+selected source starts      = [4,8,12]
+compression modes           = 12/12 predecessor_incremental_yaw
+keep tiers                  = 12/12 为 1/4
+used atoms / atom budget    = 12 / 32
+retrieved tokens per layer  = 4680
+```
+
+这证明 FP32 相机数据确实贯通到真实 checkpoint 的归档、检索、裁剪、装箱和 attention 路径，
+不只是单元测试构造能够通过。输出位于临时目录
+`/tmp/minwm_dykv_fp32_predecessor_smoke`，只作为实现验收，不登记为 MBench 质量指标。正式实验
+仍必须从各自日志检查 `predecessor_incremental_yaw`、非空 `incremental_fov_ratios` 和预期
+`keep_tiers`，并使用新目录重跑旧 BF16 产物。
 
 ## 11. 阶段六：8-slot 动态装箱
 
@@ -609,7 +628,7 @@ keep_tier = 1/4
 6. 每段根据自己的真实源时间 rebase 到 4--11；
 7. P2 没有余量做 query backfill。
 
-如果实际几何因 BF16 检查失败而回退到 `1/2`：
+如果使用修复前的旧产物，或外部调用者预先把相机几何量化成 BF16，仍可能回退到 `1/2`：
 
 1. 每个 chunk 成本变为 `4×2=8 atoms`；
 2. 32 原子预算最多选择 4 个完整 chunk；
@@ -681,7 +700,7 @@ PY
 
 ## 16. 推荐的对比关系
 
-在修复 BF16 几何精度并重新生成后，核心对比如下：
+使用当前 FP32 几何版本重新生成后，核心对比如下：
 
 | 对比 | 回答的问题 |
 | --- | --- |
@@ -704,7 +723,7 @@ SP/GPU 数量和代码 commit，并使用全新输出目录，避免跳过已有
 - FOV 检索采用 8192 个有限半径探针，是几何近似而不是精确场景可见性或遮挡推理。
 - 多个历史 frame 共享 virtual slot 会压缩真实时间关系，这是固定 20 帧训练 RoPE 范围下的
   明确折中。
-- 当前 BF16 位姿精度会触发几何 fallback；修复前不能将已有视频作为四档旋转算法结果。
+- 修复前的 BF16 相机旧视频仍是 fallback 结果；必须在新输出目录重新生成并检查日志。
 - 单元测试证明算法和预算契约，不等于真实 checkpoint 视频质量或 MBench 指标已经完成。
 
 ## 18. 代码索引
@@ -722,4 +741,3 @@ SP/GPU 数量和代码 commit，并使用全新输出目录，避免跳过已有
 | `Wan21/wan/modules/dykv_rope.py` | query/local/retrieval 的有界 time-RoPE rebase 与不变量检查 |
 | `Wan21/wan/modules/causal_model.py` | 组合三区域 K/V 并执行 self-attention |
 | `Wan21/dykv_cases.py` | 十二个可运行 case 的整体注册表 |
-
