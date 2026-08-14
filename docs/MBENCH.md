@@ -55,7 +55,7 @@ bash Wan21/scripts/inference/run_dykv_cases.sh
 
 完整 case 定义和普通 prompt 用法见 [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)。
 
-## 单组完整方法的兼容入口
+## 单组兼容默认 `yaw_intrinsics` 的入口
 
 ```bash
 MBENCH_ROOT=/absolute/path/to/MBench-A-Setup \
@@ -65,6 +65,9 @@ NUM_OUTPUT_FRAMES=100 \
 SEED=0 \
 bash Wan21/scripts/inference/run_mbench_dykv.sh
 ```
+
+该兼容脚本不代表最新 predecessor 完整方案。运行
+`predecessor_query_backfill` 应使用上一节统一 runner 并显式设置 `CASES`。
 
 运行前应先执行 `conda activate minwm-fa`。可用筛选项包括 `SUBSETS`、`CONDITIONS` 和
 `LIMIT`。若省略 `ASSIGNMENTS`，适配器使用 MBench-A 官方任务来源

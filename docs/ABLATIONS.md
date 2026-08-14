@@ -5,7 +5,8 @@
 消融实验需要分别回答三个问题：长期 KV 检索是否有效、压缩是否真正减少注意力开销、
 基于相机几何的“保留位置”是否比只调整 token 数量更重要。所有实验统一使用
 `minwm-fa`、相同 checkpoint、相同 case、相同 seed、连续 `4 + 8 + 8` RoPE 布局和
-8 latent 帧原始 retrieval 预算。
+8 latent 帧物理 retrieval token 预算。非扩容方法的源帧预算也是 8；扩容方法允许覆盖
+更多源帧，但物理 token 仍不得超过 8 个完整 latent。
 
 ## 2. 当前可以直接运行的核心消融
 
@@ -16,17 +17,18 @@
 | A0 | `baseline` | 固定 4 帧 sink + rolling local 16 | 无长期记忆的基线表现 |
 | A1 | `retrieval_no_compression` | 内参 FOV 检索，不压缩 retrieval KV | 检索本身带来的质量收益与最大开销 |
 | A2 | `fixed_novelty` | 内参检索 + 固定锚点/新颖性压缩 | 与相机无关的内容压缩效果 |
-| A3 | `yaw_intrinsics` | 内参检索 + yaw/FOV 动态空间裁剪 | 完整方法的质量/效率折中 |
+| A3 | `yaw_intrinsics` | 内参检索 + 当前-query yaw/FOV 裁剪 | E0 兼容默认的质量/效率折中 |
 | A11 | `packed_chunks` | 固定档位 + 完整 chunk 动态装箱 | 将压缩容量转换为更长历史覆盖 |
 | A12 | `packed_chunks_latent` | A11 + 单 latent 尾部补齐 | 检查不能容纳完整 chunk 时的余量收益 |
-| A16 | `predecessor_chunks` | 当前-query 检索 + 前驱增量四档压缩 | 隔离“相对前驱保留新信息”的收益 |
-| A17 | `predecessor_chunks_latent` | A16 + 单 latent 尾部补齐 | 测量不完整 chunk 余量的收益 |
-| A18 | `predecessor_query_backfill` | A17 + 当前 query 可见列回填 | 检查相关性回填能否减少错误遗忘 |
 | A13 | `retr8_compression_r050` | 8 源帧、anchor + `r=1/2` | 相同覆盖下固定压缩的信息损失 |
 | A14 | `retr12_compression_r050` | 12 源帧、anchor + `r=1/2` | 相同压缩率下增加一个 chunk 的收益 |
 | A15 | `retr16_compression_r033` | 16 源帧、anchor + `r=1/3` | 等 8 帧物理预算下覆盖两倍历史 |
+| A16 | `predecessor_chunks` | 当前-query 检索 + 前驱增量四档压缩 | 隔离“相对前驱保留新信息”的收益 |
+| A17 | `predecessor_chunks_latent` | A16 + 单 latent 尾部补齐 | 测量不完整 chunk 余量的收益 |
+| A18 | `predecessor_query_backfill` | A17 + 当前 query 可见列回填 | 推荐完整方案；检查相关性回填能否减少错误遗忘 |
 
-正式推理默认 A3。A0--A3、A11--A18 均可由 `run_dykv_cases.sh` 一键运行。
+为兼容已有命令，未指定 case 的 dyKV 推理默认 A3；当前推荐完整方案是 A18。A0--A3、
+A11--A18 均可由 `run_dykv_cases.sh` 一键运行。
 
 A1/A13/A14/A15 对应 minWM-back 的固定预算 A--D。A1 与 A15 物理 retrieval token
 完全相同；A13 与 A14 使用相同 `r=1/2`。详细预算见
@@ -66,7 +68,7 @@ A4--A10 只作为内部实验开关实现，避免重新制造大量公开超参
 | R0 | 最近可用块 | 无压缩 | 非几何检索基线 |
 | R1 | 最近可用块 | yaw/FOV 裁剪 | 单独观察压缩收益 |
 | R2 | FOV 检索 | 无压缩 | 单独观察检索收益 |
-| R3 | FOV 检索 | yaw/FOV 裁剪 | 完整方法 |
+| R3 | FOV 检索 | 历史相对 query 的 yaw/FOV 裁剪 | E0 query-relative 完整组合 |
 
 当前代码已直接支持 R2/R3；R0/R1 需要增加内部的 recent-only 选择器。四组必须保持原始
 retrieval 帧预算相同。
@@ -86,7 +88,7 @@ retrieval 帧预算相同。
 
 | 轨迹 | 预期行为 | 验证点 |
 | --- | --- | --- |
-| 0° 静止 | 保留全部空间列 | 动态算法不得无故压缩 |
+| 0° 静止 | A3 保留全部；A16--A18 使用 1/4 novelty 安全下限 | 分别验证两种已注册语义 |
 | 半个实际 FOV | 约保留一半水平角域 | 左右 mask 应互为镜像 |
 | 一个实际 FOV | 无水平交集 | 历史块应从载荷中移除 |
 | 360° | 回到等价朝向 | 角度回绕后应保留全部列 |
@@ -105,8 +107,10 @@ retrieval 帧预算相同。
 - 峰值显存、CPU 无损记忆库字节数；
 - 左/右方向、yaw 分桶和四个 subset 的分组结果。
 
-主结论应以 A0--A3 为准。A4--A10 与 R0--R3 用来解释机制，不应在观察完整方法结果后
-只选择有利的子集报告。
+主结论至少同时报告 A0、A1、A3、A16、A17、A18，不能只报告兼容默认或只报告新方法。
+A4--A10 与 R0--R3 用来解释机制，不应在观察结果后只选择有利的子集报告。
 
 动态压缩后用空余 token 容量装入更多 chunk，以及对应的 E0--E6 消融，见
 [`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md)。
+前驱增量的 P0--P2 可运行对照及诊断字段见
+[`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。

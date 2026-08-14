@@ -31,7 +31,7 @@
 
 ## 压缩方法
 
-默认使用基于相机 yaw 与水平视场交集的动态空间裁剪。对于每个被检索的历史帧：
+兼容默认 case `yaw_intrinsics` 使用“历史帧相对当前 query”的 yaw/水平视场交集裁剪：
 
 - 从历史与当前 W2C 位姿计算有向相对 yaw；
 - 从相机内参 `K` 计算水平 FOV；
@@ -55,6 +55,12 @@
 `1 + 3 * 0.5 = 2.5` 帧注意力 token。原始记忆帧预算不变；压缩只改变注意力开销，
 不改变被选择的帧。
 
+推荐的 predecessor case 改用另一种压缩参考系：当前 query 只负责历史排序；被检索块
+相对其严格前驱块计算新增世界角域，并量化为 `1/4、1/2、3/4、1`。纯 yaw 几何不可用
+时使用每帧固定 50% 的层共享 novelty fallback，不采用 anchor 完整、后三帧 50% 的
+`1+3×0.5` 载荷。候选块自身空间形状缺失或不匹配时无法构造原子化载荷，该候选会被跳过。
+两类回退的载荷形态不同，不能混为同一个算法。
+
 ## 固定档位扩容与 RoPE
 
 扩容 case 将逐帧保留率量化为 `1`、`1/2`、`1/4` 或丢弃，以 390 token 为一个预算原子，
@@ -65,20 +71,26 @@ retrieval region 总计 32 个原子。完整四帧 chunk 优先通过 0/1 背�
 只按 segment 重映射时间通道；空间通道保持不变。一个虚拟槽最多容纳 1560 token，因此
 可以容纳 1 个 full、2 个 half 或 4 个 quarter 源 latent，而不会侵入 local 12--19。
 
+predecessor 装箱额外支持 3-atom 的 `3/4` frame，并使用考虑 8 个槽实际可分箱性的动态
+规划；不能只按 32 原子总和判断可行。`predecessor_query_backfill` 只在 frame 已分配的
+同一槽仍有整原子余量时补入当前 query 可见列，之后再次检查单槽和总 token 上限。
+
 `retr8_compression_r050`、`retr12_compression_r050` 和 `retr16_compression_r033` 不受
 四分之一档位限制，而是按实际 segment token 数装箱；完整 anchor 占一槽，固定比例的
 非 anchor segment 可跨 chunk 共享槽。三者的最大物理容量仍是 8 latent。
 
 ## 公开配置
 
-命令行仅暴露 `--dykv`，区域大小不再作为公开超参数。固定方法预设如下：
+命令行只暴露 `--dykv` 和有限枚举 `--dykv-case`；区域大小、阈值和装箱参数不作为公开
+连续超参数。固定方法预设如下：
 
 | 配置项 | 值 |
 | --- | ---: |
 | sink 区域 | 4 latent 帧 |
 | retrieval 区域 | 8 latent 帧 |
 | local 区域 | 8 latent 帧（4 帧 recent + 4 帧 current） |
-| 默认检索压缩 | yaw/FOV 动态空间列裁剪 |
+| 兼容默认检索压缩 | 历史相对当前 query 的 yaw/FOV 动态空间列裁剪 |
+| 推荐 predecessor 完整方案 | 前驱新增角域四档 + latent 尾部 + query coverage 回填 |
 | 非纯 yaw 回退压缩 | 锚点 + 新颖性，保留比例 0.5 |
 | 记忆库设备 | CPU |
 
@@ -94,15 +106,23 @@ retrieval KV 仍存放于 CPU 记忆库，仅在注意力计算时加入。
 单元测试覆盖块尾捕获、逐出候选资格、左右方向镜像裁剪、0°/半 FOV/整 FOV/360°、
 平移回退、跨层索引一致性、锚点保留、新颖性选择、检索载荷的时序顺序，以及检索压缩
 不得修改无损记忆库这一约束。扩容测试另外覆盖固定档位边界、32 原子预算、完整 chunk
-背包、latent 尾部补齐、共享虚拟槽逐段 rebase 和单槽容量校验。
+背包、latent 尾部补齐、共享虚拟槽逐段 rebase 和单槽容量校验。predecessor 测试还覆盖
+四档边界、左右方向镜像、`3/4` 精确分箱、query 回填预算和 runtime 的历史扩容。
 
 ## 运行方式
 
-先进入统一环境，再启用完整预设运行常规因果相机推理：
+先进入统一环境。以下命令只启用兼容默认 `yaw_intrinsics`：
 
 ```bash
 conda activate minwm-fa
 DYKV=1 \
+  bash Wan21/scripts/inference/run_infer_causal_camera.sh
+```
+
+运行推荐 predecessor 完整方案时必须明确 case：
+
+```bash
+DYKV=1 DYKV_CASE=predecessor_query_backfill \
   bash Wan21/scripts/inference/run_infer_causal_camera.sh
 ```
 

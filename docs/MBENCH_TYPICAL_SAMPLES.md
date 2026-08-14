@@ -28,12 +28,18 @@
 | object / 右→左 | `sample_194_a04d54a4` | 绿色房间、条纹扶手椅、窗户和盆栽；观察固定物体布局和几何结构 |
 
 这是默认推荐集。四个样本覆盖四类评测内容并平衡左右运动。所有方法均固定最初 4 帧
-sink，适合先比较
-`baseline`、`retrieval_no_compression` 和 `yaw_intrinsics`，共生成 12 个视频。
+sink。最小兼容性检查可比较 `baseline`、`retrieval_no_compression` 和
+`yaw_intrinsics`，共生成 12 个视频；它只覆盖 E0 默认路径，不代表当前 predecessor
+完整方法已经参与比较。
 
 若只比较动态扩容机制，可将三组 case 改为
 `yaw_intrinsics,packed_chunks,packed_chunks_latent`，仍只生成 12 个视频，分别对应
 E0/E1/E2。
+
+验证当前 predecessor 方案时，推荐比较
+`baseline,retrieval_no_compression,yaw_intrinsics,predecessor_chunks_latent,predecessor_query_backfill`，
+四个样本共生成 20 个视频。这样既保留无记忆、不压缩和 E0 对照，也能分离 latent 尾部与
+query coverage 回填的增益。
 
 ## 3. 扩展的八样本集合
 
@@ -83,6 +89,19 @@ MODEL_PREFIX=minwm_typical4_fov \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
 
+当前 predecessor 核心小规模对比：
+
+```bash
+MBENCH_ROOT=/data/zju-151/jiangyize/research/datasets/MBench-Data/MBench-A \
+ASSIGNMENTS="$PWD/Wan21/prompts/mbench_typical_4.jsonl" \
+CASES=baseline,retrieval_no_compression,yaw_intrinsics,predecessor_chunks_latent,predecessor_query_backfill \
+NUM_OUTPUT_FRAMES=100 \
+SEED=0 \
+OUTPUT_ROOT=output/mbench_typical_4_predecessor \
+MODEL_PREFIX=minwm_typical4_predecessor \
+bash Wan21/scripts/inference/run_dykv_cases.sh
+```
+
 将 `mbench_typical_4.jsonl` 替换为 `mbench_typical_8.jsonl` 即可运行八样本方向检查。
 
 MBench 官方 25 秒条件必须使用 100 个 latent 帧，对应 397 个解码视频帧。若只是检查命令
@@ -90,7 +109,7 @@ MBench 官方 25 秒条件必须使用 100 个 latent 帧，对应 397 个解码
 
 ## 5. 输出位置
 
-四样本核心对比生成到：
+四样本三组兼容性检查生成到：
 
 ```text
 output/mbench_typical_4/

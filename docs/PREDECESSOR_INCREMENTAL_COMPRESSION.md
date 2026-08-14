@@ -71,9 +71,11 @@ r_i = max_t r_i,t
 - 两块都有合法外参、空间 latent 形状，以及所选 FOV 来源需要的内参；
 - 两块相对运动可解释为同一相机中心上的纯 yaw。
 
-平移、pitch、roll、缺失几何或缺失前驱时，使用固定 `50%`、层间共享的 novelty mask，并在
-载荷中记录 `predecessor_fixed_novelty_fallback`。这与“前后移动暂不做角度动态裁剪”的当前
-设计一致，也避免把位移误当作 yaw。
+在候选块自身空间形状合法的前提下，平移、pitch、roll、缺失相机几何或缺失前驱时，使用
+固定 `50%`、层间共享的 novelty mask，并在载荷中记录
+`predecessor_fixed_novelty_fallback`。如果连候选块的空间形状都缺失或与 frame token 数
+不一致，就无法构造四分之一原子，规划器会跳过该候选而不是伪造裁剪索引。这与“前后移动
+暂不做角度动态裁剪”的当前设计一致，也避免把位移误当作 yaw。
 
 ## 5. 八槽装箱与 3/4 档
 

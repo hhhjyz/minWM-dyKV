@@ -6,6 +6,9 @@
 
 统一实验入口为 `Wan21/scripts/inference/run_dykv_cases.sh`；当前十四个 case、普通 prompt 与
 MBench 一键运行方式见 [`docs/CASES_AND_RUNNER.md`](docs/CASES_AND_RUNNER.md)。
+未指定 case 时 `--dykv` 为兼容已有实验仍选择 `yaw_intrinsics`；当前前驱增量完整方案需
+显式选择 `predecessor_query_backfill`，实现与实验边界见
+[`docs/PREDECESSOR_INCREMENTAL_COMPRESSION.md`](docs/PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
 
 >  ***A full-stack framework and tutorial for newcomers, rather than a specific model.***
 

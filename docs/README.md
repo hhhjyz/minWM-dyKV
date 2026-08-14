@@ -17,7 +17,7 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 
 ## 设计约束
 
-旧原型暴露了许多彼此独立的开关。minWM-dyKV 改为使用一套完整、固定的预设：
+旧原型暴露了许多彼此独立的开关。minWM-dyKV 改为使用有限数量、整体注册的预设：
 
 - 所有 case 固定保留最初 4 帧 sink；baseline 使用 `4+16`，dyKV 使用连续的
   `sink 4 | retrieval 8 | local 8` latent；
@@ -28,8 +28,12 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 
 公开推理接口保留一个启用参数和一个有限枚举：
 
-- `--dykv`：启用完整方法；
+- `--dykv`：启用 dyKV；未指定 case 时为兼容已有结果，默认选择 `yaw_intrinsics`；
 - `--dykv-case`：从注册好的整体实验预设中选择，不暴露单个内部超参数。
+
+`yaw_intrinsics` 是保留兼容性的 E0 默认预设；当前推荐的前驱增量完整方案是
+`predecessor_query_backfill`，必须显式用 `--dykv-case` 或 runner 的 `CASES` 选择。两者
+都属于已注册方法，不能在文档中笼统地共称为同一个“完整方法”。
 
 区域大小等实现常量集中在一个带类型的配置对象中。这样既能在 Python 层进行消融实验，
 也不会把每个内部设计都变成命令行超参数。
@@ -59,3 +63,10 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - `../MBench`：基准用例与评测接口约定。
 
 以上路径表示开发时使用的同级参考仓库；本项目运行时不会从这些仓库导入代码。
+
+## 文档同步规则
+
+新增或修改模块时，除模块自己的设计文档外，必须同步核对 `CASES_AND_RUNNER.md`、
+`EXPERIMENTS.md`、`ABLATIONS.md`、`KV_MEMORY.md`、`TRI_REGION_ROPE.md` 和涉及运行命令的
+MBench 文档。已实现、仅单元测试通过、真实 checkpoint 已验证和正式实验完成是四种不同
+状态，记录时不得互相替代。

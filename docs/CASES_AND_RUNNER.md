@@ -17,12 +17,12 @@
 | `fixed_novelty` | 固定 4 | 开启 | 相机 `K` | 固定锚点 + 新颖性 | — | 与相机无关的压缩对照 |
 | `yaw_fixed_fov` | 固定 4 | 开启 | 固定 `60°×35°` | yaw 空间列裁剪 | 固定水平 `60°` | F0，复现固定角度假设 |
 | `yaw_mixed_fov` | 固定 4 | 开启 | 固定 `60°×35°` | yaw 空间列裁剪 | 相机 `K` | F1，隔离检索角度的影响 |
-| `yaw_intrinsics` | 固定 4 | 开启 | 相机 `K` | yaw 空间列裁剪 | 相机 `K` | F2，默认完整方法 |
+| `yaw_intrinsics` | 固定 4 | 开启 | 相机 `K` | 历史相对当前 query 的 yaw 空间列裁剪 | 相机 `K` | F2/E0，兼容默认预设 |
 | `packed_chunks` | 固定 4 | 开启 | 相机 `K` | `{1,1/2,1/4}` 固定档位 | 相机 `K` | E1，32 原子预算内扩充完整 chunk |
 | `packed_chunks_latent` | 固定 4 | 开启 | 相机 `K` | 固定档位 + 单 latent 尾部 | 相机 `K` | E2，完整 chunk 后继续补齐余量 |
 | `predecessor_chunks` | 固定 4 | 开启 | 当前 query、相机 `K` | 相对前驱的 `{1/4,1/2,3/4,1}` 裁剪 | 相机 `K` | P0，仅装入完整 chunk |
 | `predecessor_chunks_latent` | 固定 4 | 开启 | 当前 query、相机 `K` | 前驱四档裁剪 + latent 尾部 | 相机 `K` | P1，用单 latent 补齐余量 |
-| `predecessor_query_backfill` | 固定 4 | 开启 | 当前 query、相机 `K` | P1 + query 可见列回填 | 相机 `K` | P2，完整前驱增量方案 |
+| `predecessor_query_backfill` | 固定 4 | 开启 | 当前 query、相机 `K` | P1 + query 可见列回填 | 相机 `K` | P2，推荐的完整前驱增量方案 |
 | `retr8_compression_r050` | 固定 4 | 开启 | 相机 `K` | 2 chunk，anchor + `r=1/2` | — | minWM-back B：8 源帧压到 5 帧容量 |
 | `retr12_compression_r050` | 固定 4 | 开启 | 相机 `K` | 3 chunk，anchor + `r=1/2` | — | minWM-back C：12 源帧压到 7.5 帧容量 |
 | `retr16_compression_r033` | 固定 4 | 开启 | 相机 `K` | 4 chunk，anchor + `r=1/3` | — | minWM-back D：16 源帧压到 8 帧容量 |
@@ -31,6 +31,10 @@
 默认归一化内参对应约 `89.424°×58.225°`，因此 F0 与 F2 是有效且差异明显的消融。
 当历史归档或当前 query 缺少合法 `K` 时，内参检索回退到固定 `60°×35°`；动态裁剪因
 缺失几何信息回退到固定新颖性压缩。
+
+为保持已有脚本兼容，单独设置 `DYKV=1` 仍默认运行 `yaw_intrinsics`，不会自动切换到最新
+的 predecessor 方法。需要验证当前完整方案时应显式指定
+`DYKV_CASE=predecessor_query_backfill`。
 
 固定 WorldKV A--D 的预算公式、与旧实现的差异及运行方式见
 [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)。
@@ -61,7 +65,7 @@ bash Wan21/scripts/inference/run_dykv_cases.sh
 只运行部分 case 时使用逗号分隔的 `CASES`，例如：
 
 ```bash
-CASES=yaw_intrinsics,packed_chunks,packed_chunks_latent \
+CASES=yaw_intrinsics,packed_chunks_latent,predecessor_chunks,predecessor_chunks_latent,predecessor_query_backfill \
 OUTPUT_ROOT=output/dykv_core \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
@@ -87,7 +91,7 @@ Runner 会把结果写到 `OUTPUT_ROOT/{case}/`。生成参数仍可用
 conda activate minwm-fa
 MBENCH_ROOT=/absolute/path/to/MBench-A-Setup \
 ASSIGNMENTS=/absolute/path/to/samples.jsonl \
-CASES=baseline,yaw_intrinsics,packed_chunks,packed_chunks_latent \
+CASES=baseline,yaw_intrinsics,packed_chunks_latent,predecessor_chunks_latent,predecessor_query_backfill \
 NUM_OUTPUT_FRAMES=100 \
 SEED=0 \
 OUTPUT_ROOT=output/mbench_dykv_cases \

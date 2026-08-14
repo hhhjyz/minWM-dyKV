@@ -30,21 +30,21 @@ conda activate minwm-fa
 | B0 | `baseline` | 固定 4 帧 sink + rolling local 16 | 质量/速度基线 | 待运行 |
 | B1 | `retrieval_no_compression` | 不压缩的 dyKV | 单独分析检索收益 | 待运行 |
 | B2 | `fixed_novelty` | 固定内容压缩 dyKV | 与相机无关的压缩对照 | 待运行 |
-| B3 | `yaw_intrinsics` | 完整动态 dyKV | 评估记忆、速度与质量 | 待运行 |
+| B3 | `yaw_intrinsics` | 当前-query 几何裁剪（E0 兼容默认） | 评估旧动态路径的记忆、速度与质量 | 待运行 |
 | B4 | `packed_chunks` | 固定档位完整 chunk 扩容 | 评估更多完整历史覆盖 | 待运行 |
 | B5 | `packed_chunks_latent` | 完整 chunk + latent 尾部补齐 | 评估余量补齐收益 | 待运行 |
-| B9 | `predecessor_chunks` | 前驱新增角域四档压缩，完整 chunk | 验证压缩依据从 query 改为前驱的影响 | 待运行 |
-| B10 | `predecessor_chunks_latent` | B9 + 单 latent 尾部 | 验证剩余容量带来的历史覆盖收益 | 待运行 |
-| B11 | `predecessor_query_backfill` | B10 + 当前 query coverage 回填 | 验证回填能否兼顾历史跨度与当前相关性 | 待运行 |
 | B6 | `retr8_compression_r050` | 8 源帧、固定 `r=1/2` | 固定覆盖下的压缩损失 | 待运行 |
 | B7 | `retr12_compression_r050` | 12 源帧、固定 `r=1/2` | 同比例下扩充 chunk 的收益 | 待运行 |
 | B8 | `retr16_compression_r033` | 16 源帧、固定 `r=1/3` | 与 8 帧不压缩严格等 token 对比 | 待运行 |
+| B9 | `predecessor_chunks` | 前驱新增角域四档压缩，完整 chunk | 验证压缩依据从 query 改为前驱的影响 | 待运行 |
+| B10 | `predecessor_chunks_latent` | B9 + 单 latent 尾部 | 验证剩余容量带来的历史覆盖收益 | 待运行 |
+| B11 | `predecessor_query_backfill` | B10 + 当前 query coverage 回填 | 推荐完整方案；验证跨度与当前相关性 | 待运行 |
 
 以上 case 均可由 `Wan21/scripts/inference/run_dykv_cases.sh` 统一运行。FOV 来源消融另使用
 `yaw_fixed_fov`、`yaw_mixed_fov` 和 `yaw_intrinsics`，定义见
 [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)。
 
-所有实验固定保留最初 4 帧 sink。B0 使用 `4 + 16`，B1/B2/B3 使用连续的
+所有实验固定保留最初 4 帧 sink。B0 使用 `4 + 16`，所有 dyKV case B1--B11 使用连续的
 `4 + 8 + 8` latent：4 帧 sink、8 帧 retrieval、
 8 帧 local（4 帧 recent + 4 帧 current），正好覆盖 20 帧 RoPE 训练窗口。
 动态空间压缩及完整消融矩阵见 [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)
@@ -81,7 +81,7 @@ B9--B11 的压缩参考系、四档规则和 32 原子精确装箱见
 | 待运行 | B0 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 基线 |
 | 待运行 | B1 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 仅检索 |
 | 待运行 | B2 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 固定新颖性 |
-| 待运行 | B3 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 完整方法 |
+| 待运行 | B3 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | E0 兼容默认 |
 | 待运行 | B4 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 完整 chunk 扩容 |
 | 待运行 | B5 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | latent 尾部补齐 |
 | 待运行 | B6 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 8 帧固定 1/2 |
@@ -89,14 +89,14 @@ B9--B11 的压缩参考系、四档规则和 32 原子精确装箱见
 | 待运行 | B8 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 16 帧固定 1/3 |
 | 待运行 | B9 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 前驱四档完整 chunk |
 | 待运行 | B10 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 加 latent 尾部 |
-| 待运行 | B11 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 加 query coverage 回填 |
+| 待运行 | B11 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 推荐 predecessor 完整方案 |
 
 禁止用估计值替换“待运行”，表中只记录实测结果。
 
 ## 实现冒烟测试
 
-该测试只验证实现链路，不代表 MBench 分数。短闭环轨迹会刻意跨过第 20 帧启用边界，
-使检索、压缩和三区域 RoPE 在真实 checkpoint 推理中完整执行。
+以下是历史冒烟记录，只验证当时提交的实现链路，不代表 MBench 分数，也不验证当前连续
+`4+8+8`、动态装箱或 predecessor 路径。短闭环轨迹曾跨过第 20 帧启用边界。
 
 | 字段 | 实测值 |
 | --- | --- |
