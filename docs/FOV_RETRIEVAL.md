@@ -17,8 +17,10 @@ left   = atan(-cx / fx)          right  = atan((1 - cx) / fx)
 top    = atan(-cy / fy)          bottom = atan((1 - cy) / fy)
 ```
 
-当前 minWM 默认 `fx=0.5050505, fy=0.89786756, cx=cy=0.5`，对应约
-`89.424°×58.225°`。相对于历史相机距离超过半径 8 的历史点仍不计入重叠。
+当前 `Wan21/wan_inference.py` 的轨迹推理入口实际构造
+`fx=fy=cx=cy=0.5`，对应 `90°×90°`；该矩阵对同一视频的所有帧相同。算法只从 `K`
+推导 FOV，不再读取独立的固定角度参数，但当前也尚未从 MBench 样本读取逐样本真实标定。
+相对于历史相机距离超过半径 8 的历史点仍不计入重叠。
 
 固定 FOV 和混合 FOV 消融已经移除，运行配置中也不再保存水平/垂直固定角度。当前 query
 缺少或包含非法 `K` 时检索直接报错；历史块缺少 `K` 时跳过该块。这样不会在不同样本间
@@ -40,6 +42,14 @@ HY-WorldPlay 使用随机蒙特卡洛采样点。dyKV 将其替换为确定性�
 - 单元测试与重复实验可复现。
 
 探针张量在每次推理开始时只生成一次，后续块重复使用。
+
+## 当前相机精度限制
+
+推理入口目前把 `viewmats/Ks` 转为 BF16。FOV overlap 内部转为 FP32，通常仍可完成候选
+排序；但后续 yaw 空间裁剪的纯旋转检查使用更严格的 `1e-4` 容差，BF16 量化误差会使真实
+`j/l` 旋转进入 novelty fallback。完整影响与日志证据见
+[`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。因此，
+“FOV 检索完成”与“旋转角度裁剪实际触发”必须分别通过日志验证。
 
 ## 候选边界
 

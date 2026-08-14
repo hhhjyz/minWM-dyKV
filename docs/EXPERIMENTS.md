@@ -58,6 +58,16 @@ minWM-back 固定比例 A--D 对照由 B1/B6/B7/B8 构成，具体预算与适�
 B9--B11 的压缩参考系、四档规则和 32 原子精确装箱见
 [`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
 
+### 当前旋转实验阻塞项
+
+真实推理目前将相机 `viewmats/Ks` 转为 BF16，而纯 yaw 检查使用 `1e-4` 容差。已有
+`predecessor_chunks` 典型样本日志全部记录为 `predecessor_fixed_novelty_fallback` 和
+`keep_tier=0.5`，最大只装入 4 个 chunk；这些产物只能视为链路冒烟，不能登记为 B9--B11
+四档旋转压缩结果。正式运行前应修复几何精度，并以日志出现
+`predecessor_incremental_yaw`、非空 `incremental_fov_ratios` 和预期四档为验收条件。
+完整原因与判读方法见
+[`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。
+
 ## 评测分组
 
 1. 闭环相机路径：验证模型能否恢复之前观察过的内容。

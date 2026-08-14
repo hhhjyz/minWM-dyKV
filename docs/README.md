@@ -40,6 +40,7 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 
 ## 模块文档
 
+- [`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)：从无损 KV 归档、当前-query FOV 检索、前驱旋转四档压缩、动态装箱到 RoPE rebase 的完整代码流程，并记录当前 BF16 几何精度限制；
 - [`KV_MEMORY.md`](KV_MEMORY.md)：逐出存储、检索载荷与检索时压缩；
 - [`FIXED_SINK.md`](FIXED_SINK.md)：所有 case 的固定四帧 sink 与公平缓存布局；
 - [`TRI_REGION_ROPE.md`](TRI_REGION_ROPE.md)：有界时序位置布局；

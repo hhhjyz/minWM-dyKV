@@ -94,7 +94,8 @@ predecessor 装箱额外支持 3-atom 的 `3/4` frame，并使用考虑 8 个槽
 | local 区域 | 8 latent 帧（4 帧 recent + 4 帧 current） |
 | 兼容默认检索压缩 | 历史相对当前 query 的 yaw/FOV 动态空间列裁剪 |
 | 推荐 predecessor 完整方案 | 前驱新增角域四档 + latent 尾部 + query coverage 回填 |
-| 非纯 yaw 回退压缩 | 锚点 + 新颖性，保留比例 0.5 |
+| E0 非纯 yaw 回退 | 完整 anchor + 后三帧 50% 新颖性 |
+| predecessor 非纯 yaw 回退 | 四帧各保留 50% 层共享新颖性 |
 | 记忆库设备 | CPU |
 
 三区域在 20 帧训练窗口中连续排列为 `[0,4) + [4,12) + [12,20)`，不存在保留空隙。
@@ -131,3 +132,7 @@ DYKV=1 DYKV_CASE=predecessor_query_backfill \
 
 输出目录包含 `dykv_summaries.jsonl`，每个 prompt 对应一条记录。记录包括记忆库字节数、
 选中块 ID、源起始帧、压缩后 token 数以及检索耗时。
+
+当前真实推理存在 BF16 位姿无法通过 `1e-4` 纯 yaw 检查的问题，已有旋转视频主要走上述
+predecessor 50% fallback。算法设计、实际偏差和完整日志判读见
+[`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。

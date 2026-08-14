@@ -34,6 +34,12 @@ A1/A13/A14/A15 对应 minWM-back 的固定预算 A--D。A1 与 A15 物理 retrie
 完全相同；A13 与 A14 使用相同 `r=1/2`。详细预算见
 [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)。
 
+当前真实推理的 BF16 位姿会使 `1e-4` 纯 yaw 检查失败，已有 predecessor 视频实际走
+50% novelty fallback。修复前不得把 A16--A18 记为四档旋转消融；修复后必须从
+`dykv_summaries.jsonl` 核验 `compression_modes`、`incremental_fov_ratios` 和
+`keep_tiers`。完整流程和验收方法见
+[`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。
+
 ### 公平比较方式
 
 需要同时做两种口径，避免动态方法因 token 数不同而被错误解释：

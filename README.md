@@ -9,6 +9,8 @@ MBench 一键运行方式见 [`docs/CASES_AND_RUNNER.md`](docs/CASES_AND_RUNNER.
 未指定 case 时 `--dykv` 为兼容已有实验仍选择 `yaw_intrinsics`；当前前驱增量完整方案需
 显式选择 `predecessor_query_backfill`，实现与实验边界见
 [`docs/PREDECESSOR_INCREMENTAL_COMPRESSION.md`](docs/PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
+从 KV 归档、当前-query FOV 检索、前驱旋转压缩、动态装箱到 RoPE rebase 的完整调用链见
+[`docs/RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](docs/RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。
 
 >  ***A full-stack framework and tutorial for newcomers, rather than a specific model.***
 
