@@ -76,10 +76,12 @@ class DyKVConfig:
             "whole_chunks",
             "whole_chunks_and_latents",
             "fixed_worldkv",
+            "predecessor_chunks",
+            "predecessor_chunks_and_latents",
+            "predecessor_query_backfill",
         }:
             raise ValueError(
-                "dyKV packing_mode must be none, whole_chunks, or "
-                "whole_chunks_and_latents, or fixed_worldkv"
+                "unsupported dyKV packing_mode"
             )
         if self.retrieval_frames <= 0 or self.retrieval_frames % chunk_frames:
             raise ValueError(

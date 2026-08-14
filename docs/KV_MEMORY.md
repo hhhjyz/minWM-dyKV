@@ -19,6 +19,10 @@
 `8×1560` token 上限内选择更多完整 chunk；`packed_chunks_latent` 还会用未选中块中的
 单个 latent 补齐剩余容量。CPU bank 的存储方式不变。
 
+`predecessor_chunks*` 三组保持当前 query FOV 检索，但按候选块相对严格前驱块的新增
+世界角域做 `{1/4,1/2,3/4,1}` 四档检索时压缩；详细载荷和装箱契约见
+[`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
+
 固定 WorldKV 对照则先按 case 选择 8/12/16 个源 latent，再保留每个 chunk 的完整 anchor
 和非 anchor 的固定比例新颖性 token。它们同样只在 materialize 阶段压缩。
 

@@ -19,11 +19,14 @@
 | A3 | `yaw_intrinsics` | 内参检索 + yaw/FOV 动态空间裁剪 | 完整方法的质量/效率折中 |
 | A11 | `packed_chunks` | 固定档位 + 完整 chunk 动态装箱 | 将压缩容量转换为更长历史覆盖 |
 | A12 | `packed_chunks_latent` | A11 + 单 latent 尾部补齐 | 检查不能容纳完整 chunk 时的余量收益 |
+| A16 | `predecessor_chunks` | 当前-query 检索 + 前驱增量四档压缩 | 隔离“相对前驱保留新信息”的收益 |
+| A17 | `predecessor_chunks_latent` | A16 + 单 latent 尾部补齐 | 测量不完整 chunk 余量的收益 |
+| A18 | `predecessor_query_backfill` | A17 + 当前 query 可见列回填 | 检查相关性回填能否减少错误遗忘 |
 | A13 | `retr8_compression_r050` | 8 源帧、anchor + `r=1/2` | 相同覆盖下固定压缩的信息损失 |
 | A14 | `retr12_compression_r050` | 12 源帧、anchor + `r=1/2` | 相同压缩率下增加一个 chunk 的收益 |
 | A15 | `retr16_compression_r033` | 16 源帧、anchor + `r=1/3` | 等 8 帧物理预算下覆盖两倍历史 |
 
-正式推理默认 A3。A0--A3、A11--A15 均可由 `run_dykv_cases.sh` 一键运行。
+正式推理默认 A3。A0--A3、A11--A18 均可由 `run_dykv_cases.sh` 一键运行。
 
 A1/A13/A14/A15 对应 minWM-back 的固定预算 A--D。A1 与 A15 物理 retrieval token
 完全相同；A13 与 A14 使用相同 `r=1/2`。详细预算见

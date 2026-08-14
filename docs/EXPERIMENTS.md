@@ -33,6 +33,9 @@ conda activate minwm-fa
 | B3 | `yaw_intrinsics` | 完整动态 dyKV | 评估记忆、速度与质量 | 待运行 |
 | B4 | `packed_chunks` | 固定档位完整 chunk 扩容 | 评估更多完整历史覆盖 | 待运行 |
 | B5 | `packed_chunks_latent` | 完整 chunk + latent 尾部补齐 | 评估余量补齐收益 | 待运行 |
+| B9 | `predecessor_chunks` | 前驱新增角域四档压缩，完整 chunk | 验证压缩依据从 query 改为前驱的影响 | 待运行 |
+| B10 | `predecessor_chunks_latent` | B9 + 单 latent 尾部 | 验证剩余容量带来的历史覆盖收益 | 待运行 |
+| B11 | `predecessor_query_backfill` | B10 + 当前 query coverage 回填 | 验证回填能否兼顾历史跨度与当前相关性 | 待运行 |
 | B6 | `retr8_compression_r050` | 8 源帧、固定 `r=1/2` | 固定覆盖下的压缩损失 | 待运行 |
 | B7 | `retr12_compression_r050` | 12 源帧、固定 `r=1/2` | 同比例下扩充 chunk 的收益 | 待运行 |
 | B8 | `retr16_compression_r033` | 16 源帧、固定 `r=1/3` | 与 8 帧不压缩严格等 token 对比 | 待运行 |
@@ -52,6 +55,8 @@ conda activate minwm-fa
 E0；B4/B5 分别对应 E1/E2。
 minWM-back 固定比例 A--D 对照由 B1/B6/B7/B8 构成，具体预算与适配差异见
 [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)。
+B9--B11 的压缩参考系、四档规则和 32 原子精确装箱见
+[`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
 
 ## 评测分组
 
@@ -65,7 +70,7 @@ minWM-back 固定比例 A--D 对照由 B1/B6/B7/B8 构成，具体预算与适�
 - 使用 MBench-A 官方任务分配，并记录准确的 `samples.jsonl` 校验和。
 - 10 秒/25 秒用例分别使用与 checkpoint 对齐的 40/100 个 latent 位姿；报告时同时列出
   解码后的 157/397 帧长度和官方目标 161/401 帧。
-- B0--B8 必须使用相同的用例分配、checkpoint、latent 长度、分辨率和 seed。
+- B0--B11 必须使用相同的用例分配、checkpoint、latent 长度、分辨率和 seed。
 - 每种方法和每个 seed 分别注册为独立的 MBench `model_id`。
 - 评测前先运行接口约定校验，并记录因缺少 DA3/VLM 产物而跳过的指标。
 
@@ -82,6 +87,9 @@ minWM-back 固定比例 A--D 对照由 B1/B6/B7/B8 构成，具体预算与适�
 | 待运行 | B6 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 8 帧固定 1/2 |
 | 待运行 | B7 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 12 帧固定 1/2 |
 | 待运行 | B8 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 16 帧固定 1/3 |
+| 待运行 | B9 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 前驱四档完整 chunk |
+| 待运行 | B10 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 加 latent 尾部 |
+| 待运行 | B11 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 加 query coverage 回填 |
 
 禁止用估计值替换“待运行”，表中只记录实测结果。
 
@@ -108,4 +116,4 @@ minWM-back 固定比例 A--D 对照由 B1/B6/B7/B8 构成，具体预算与适�
 运行输出位于 `/tmp/minwm_dykv_smoke`，不属于持久化基准产物。该冒烟测试未采集显存峰值，
 因此不报告该数值。该记录对应 commit `d4dcdd2` 的旧三区域布局；切换到连续
 `4 + 8 + 8` 布局后需要重新运行冒烟测试，不能将本行视为新布局的验证结果。正式
-B0--B8 和 MBench 结果仍保持“待运行”，直到完成对应实验。
+B0--B11 和 MBench 结果仍保持“待运行”，直到完成对应实验。

@@ -4,6 +4,10 @@
 > `yaw_intrinsics` 保留原来的 E0 行为；`packed_chunks` 和
 > `packed_chunks_latent` 分别实现 E1、E2，便于直接公平对照。
 
+本文件描述的是“历史块相对当前 query”的第一版动态装箱。后续新增的“当前 query 只负责
+检索、历史块相对前驱 chunk 压缩”、`3/4` 档精确装箱及 query coverage 回填已实现为独立
+case，见 [`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
+
 ## 实现入口
 
 - `Wan21/pipeline/dykv_packing.py`：固定档位、32 原子背包、完整 chunk 优先、latent 尾部
