@@ -53,12 +53,6 @@ class CausalInferencePipeline(torch.nn.Module):
                     getattr(args, "dykv_compression_keep_ratio", 0.5)
                 ),
                 packing_mode=str(getattr(args, "dykv_packing_mode", "none")),
-                retrieval_fov_source=str(
-                    getattr(args, "dykv_retrieval_fov_source", "intrinsics")
-                ),
-                compression_fov_source=str(
-                    getattr(args, "dykv_compression_fov_source", "intrinsics")
-                ),
             ),
             chunk_frames=self.num_frame_per_block,
         )

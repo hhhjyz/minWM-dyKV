@@ -68,21 +68,10 @@ def _inside_angular_fov(
 
 def angular_fov_bounds(
     K: torch.Tensor | None,
-    *,
-    source: str = "intrinsics",
-    horizontal_degrees: float = 60.0,
-    vertical_degrees: float = 35.0,
 ) -> tuple[tuple[float, float], tuple[float, float], str]:
-    """Resolve angular image bounds in degrees.
+    """Resolve angular image bounds from normalized camera intrinsics."""
 
-    Intrinsics are normalized to image width/height.  Missing or invalid
-    intrinsics deliberately fall back to HY-WorldPlay's fixed FOV so older
-    archives remain retrievable.
-    """
-
-    if source not in {"fixed", "intrinsics"}:
-        raise ValueError("FOV source must be fixed or intrinsics")
-    if source == "intrinsics" and K is not None:
+    if K is not None:
         matrix = K.detach().to(device="cpu", dtype=torch.float64)
         if matrix.shape == (3, 3):
             fx, fy = float(matrix[0, 0]), float(matrix[1, 1])
@@ -94,15 +83,7 @@ def angular_fov_bounds(
                     (math.atan(-cy / fy) * scale, math.atan((1.0 - cy) / fy) * scale),
                     "intrinsics",
                 )
-    if not 0.0 < float(horizontal_degrees) < 180.0:
-        raise ValueError("horizontal FOV must be in (0, 180) degrees")
-    if not 0.0 < float(vertical_degrees) < 180.0:
-        raise ValueError("vertical FOV must be in (0, 180) degrees")
-    return (
-        (-float(horizontal_degrees) / 2.0, float(horizontal_degrees) / 2.0),
-        (-float(vertical_degrees) / 2.0, float(vertical_degrees) / 2.0),
-        "fixed" if source == "fixed" else "fixed_fallback",
-    )
+    raise ValueError("FOV retrieval requires valid normalized camera intrinsics K")
 
 
 def fov_overlap(
@@ -112,9 +93,6 @@ def fov_overlap(
     *,
     current_K: torch.Tensor | None = None,
     historical_K: torch.Tensor | None = None,
-    fov_source: str = "intrinsics",
-    horizontal_degrees: float = 60.0,
-    vertical_degrees: float = 35.0,
     radius: float = 8.0,
 ) -> torch.Tensor:
     """Return ``|current FOV intersect historical FOV| / |current FOV|``.
@@ -138,15 +116,9 @@ def fov_overlap(
     )
     current_horizontal, current_vertical, _ = angular_fov_bounds(
         current_K,
-        source=fov_source,
-        horizontal_degrees=horizontal_degrees,
-        vertical_degrees=vertical_degrees,
     )
     historical_horizontal, historical_vertical, _ = angular_fov_bounds(
         historical_K,
-        source=fov_source,
-        horizontal_degrees=horizontal_degrees,
-        vertical_degrees=vertical_degrees,
     )
     points_world = probe_points + current_center[None, :]
     current_mask = _inside_angular_fov(
@@ -182,9 +154,6 @@ def chunk_fov_distance(
     *,
     current_Ks: torch.Tensor | None = None,
     historical_Ks: torch.Tensor | None = None,
-    fov_source: str = "intrinsics",
-    horizontal_degrees: float = 60.0,
-    vertical_degrees: float = 35.0,
     radius: float = 8.0,
 ) -> torch.Tensor:
     """HY-WorldPlay's query-chunk to history-chunk distance.
@@ -221,9 +190,6 @@ def chunk_fov_distance(
                     if historical_Ks is not None and index < historical_Ks.shape[0]
                     else None
                 ),
-                fov_source=fov_source,
-                horizontal_degrees=horizontal_degrees,
-                vertical_degrees=vertical_degrees,
                 radius=radius,
             )
             for index in representatives
@@ -240,10 +206,7 @@ def select_fov_blocks(
     current_Ks: torch.Tensor | None = None,
     memory_frames: int,
     probe_points: torch.Tensor,
-    horizontal_degrees: float = 60.0,
-    vertical_degrees: float = 35.0,
     radius: float = 8.0,
-    fov_source: str = "intrinsics",
 ) -> tuple[list[int], list[int], list[float]]:
     """Select closest blocks and return their complete FOV ranking.
 
@@ -251,10 +214,12 @@ def select_fov_blocks(
     indices and distances remain score-aligned for diagnostics.
     """
 
+    if current_Ks is None:
+        raise ValueError("dyKV FOV retrieval requires current camera intrinsics K")
     scored: list[tuple[int, float]] = []
     for index in candidate_indices:
         block = bank.blocks[int(index)]
-        if block.viewmats is None:
+        if block.viewmats is None or getattr(block, "Ks", None) is None:
             continue
         distance = chunk_fov_distance(
             current_viewmats,
@@ -262,9 +227,6 @@ def select_fov_blocks(
             probe_points,
             current_Ks=current_Ks,
             historical_Ks=getattr(block, "Ks", None),
-            fov_source=fov_source,
-            horizontal_degrees=horizontal_degrees,
-            vertical_degrees=vertical_degrees,
             radius=radius,
         )
         scored.append((int(index), float(distance.item())))

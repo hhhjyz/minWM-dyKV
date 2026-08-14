@@ -78,6 +78,8 @@ class DyKVRuntime:
             return None
         if current_viewmats is None:
             raise ValueError("dyKV FOV retrieval requires camera view matrices")
+        if current_Ks is None:
+            raise ValueError("dyKV FOV retrieval requires camera intrinsics K")
 
         bank = self.bank(branch)
         candidates = bank.evicted_candidates(
@@ -93,10 +95,7 @@ class DyKVRuntime:
             current_Ks=current_Ks,
             memory_frames=self.config.retrieval_frames,
             probe_points=self.probe_points,
-            horizontal_degrees=self.config.fov_horizontal_degrees,
-            vertical_degrees=self.config.fov_vertical_degrees,
             radius=self.config.fov_radius,
-            fov_source=self.config.retrieval_fov_source,
         )
         packing_plan = None
         if self.config.packing_mode == "fixed_worldkv":
@@ -132,8 +131,6 @@ class DyKVRuntime:
                 query_backfill=(
                     self.config.packing_mode == "predecessor_query_backfill"
                 ),
-                compression_fov_source=self.config.compression_fov_source,
-                fixed_horizontal_degrees=self.config.fov_horizontal_degrees,
             )
             payloads = materialize_packed_retrieval(
                 bank,
@@ -155,8 +152,6 @@ class DyKVRuntime:
                 include_tail_latents=(
                     self.config.packing_mode == "whole_chunks_and_latents"
                 ),
-                compression_fov_source=self.config.compression_fov_source,
-                fixed_horizontal_degrees=self.config.fov_horizontal_degrees,
             )
             payloads = materialize_packed_retrieval(
                 bank,
@@ -175,8 +170,6 @@ class DyKVRuntime:
                 compression_mode=self.config.compression_mode,
                 current_viewmats=current_viewmats,
                 current_Ks=current_Ks,
-                compression_fov_source=self.config.compression_fov_source,
-                fixed_horizontal_degrees=self.config.fov_horizontal_degrees,
             ) if selected else None
         if not payloads:
             payloads = None
@@ -212,8 +205,6 @@ class DyKVRuntime:
                 "query_backfill_tokens": diagnostics.get(
                     "query_backfill_tokens", []
                 ),
-                "retrieval_fov_source": self.config.retrieval_fov_source,
-                "compression_fov_source": self.config.compression_fov_source,
                 "packing_mode": self.config.packing_mode,
                 "selected_tail_frame_ids": diagnostics.get(
                     "selected_tail_frame_ids", []
@@ -251,8 +242,6 @@ class DyKVRuntime:
             "packing_mode": self.config.packing_mode,
             "retrieval_frames": self.config.retrieval_frames,
             "compression_keep_ratio": self.config.compression_keep_ratio,
-            "retrieval_fov_source": self.config.retrieval_fov_source,
-            "compression_fov_source": self.config.compression_fov_source,
             "branches": {branch: bank.summary() for branch, bank in self.banks.items()},
             "events": list(self.events),
         }

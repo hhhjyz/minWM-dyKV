@@ -79,21 +79,17 @@ class DyKVDynamicCompressionTest(unittest.TestCase):
         self.assertEqual(plan.token_indices.numel(), 0)
         self.assertEqual(plan.kept_tokens_per_frame, (0, 0, 0, 0))
 
-    def test_fixed_and_intrinsics_fov_produce_separate_crop_cases(self):
-        kwargs = dict(
+    def test_missing_intrinsics_do_not_use_a_fixed_fov(self):
+        plan = memory.build_yaw_crop_plan(
             historical_viewmats=_poses(0.0),
-            historical_Ks=_intrinsics(horizontal_fov_degrees=89.424168),
+            historical_Ks=None,
             current_viewmats=_poses(60.0),
             current_Ks=_intrinsics(horizontal_fov_degrees=89.424168),
             frame_count=4,
             frame_tokens=24,
             spatial_shape=(2, 12),
         )
-        fixed = memory.build_yaw_crop_plan(**kwargs, fov_source="fixed")
-        intrinsic = memory.build_yaw_crop_plan(**kwargs, fov_source="intrinsics")
-        self.assertEqual(fixed.token_indices.numel(), 0)
-        self.assertGreater(intrinsic.token_indices.numel(), 0)
-        self.assertLess(intrinsic.token_indices.numel(), 96)
+        self.assertIsNone(plan)
 
     def test_full_rotation_wraps_to_same_view(self):
         plan = self._plan(360.0)

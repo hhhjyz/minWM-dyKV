@@ -17,7 +17,6 @@ import torch
 from .dykv_memory import (
     DyKVBank,
     MemoryBlock,
-    _fixed_horizontal_intrinsics,
     _horizontal_fov_bounds,
     _horizontal_ray_angles,
     _pure_yaw_delta,
@@ -76,19 +75,10 @@ class PredecessorCandidate:
 
 def _intrinsics_for_block(
     block: MemoryBlock,
-    *,
-    fov_source: str,
-    fixed_horizontal_degrees: float,
 ) -> torch.Tensor | None:
     poses = _single_batch_frames(block.viewmats, matrix_size=4)
     if poses is None:
         return None
-    if fov_source == "fixed":
-        return _fixed_horizontal_intrinsics(fixed_horizontal_degrees).repeat(
-            poses.shape[0], 1, 1
-        )
-    if fov_source != "intrinsics":
-        raise ValueError("predecessor compression FOV source must be fixed or intrinsics")
     return _single_batch_frames(block.Ks, matrix_size=3)
 
 
@@ -161,8 +151,6 @@ def _predecessor_geometry(
     block: MemoryBlock,
     *,
     frame_tokens: int,
-    compression_fov_source: str,
-    fixed_horizontal_degrees: float,
 ) -> tuple[tuple[FrameCrop, ...], tuple[FrameCrop, ...], float] | None:
     if block.spatial_shape is None:
         return None
@@ -171,16 +159,8 @@ def _predecessor_geometry(
         return None
     previous_poses = _single_batch_frames(predecessor.viewmats, matrix_size=4)
     poses = _single_batch_frames(block.viewmats, matrix_size=4)
-    previous_Ks = _intrinsics_for_block(
-        predecessor,
-        fov_source=compression_fov_source,
-        fixed_horizontal_degrees=fixed_horizontal_degrees,
-    )
-    Ks = _intrinsics_for_block(
-        block,
-        fov_source=compression_fov_source,
-        fixed_horizontal_degrees=fixed_horizontal_degrees,
-    )
+    previous_Ks = _intrinsics_for_block(predecessor)
+    Ks = _intrinsics_for_block(block)
     if previous_poses is None or poses is None or previous_Ks is None or Ks is None:
         return None
     if previous_poses.shape[0] != predecessor.frame_count or poses.shape[0] != block.frame_count:
@@ -282,8 +262,6 @@ def build_predecessor_candidate(
     block_index: int,
     distance: float,
     frame_tokens: int,
-    compression_fov_source: str,
-    fixed_horizontal_degrees: float,
 ) -> PredecessorCandidate | None:
     block = bank.blocks[int(block_index)]
     predecessor_index = _find_predecessor(bank, int(block_index))
@@ -293,8 +271,6 @@ def build_predecessor_candidate(
             bank.blocks[predecessor_index],
             block,
             frame_tokens=frame_tokens,
-            compression_fov_source=compression_fov_source,
-            fixed_horizontal_degrees=fixed_horizontal_degrees,
         )
     fallback_reason = None
     if geometry is None:
@@ -474,8 +450,6 @@ def _apply_query_backfill(
     current_viewmats: torch.Tensor,
     current_Ks: torch.Tensor | None,
     frame_tokens: int,
-    compression_fov_source: str,
-    fixed_horizontal_degrees: float,
 ) -> tuple[list[PackedFramePlan], list[int]]:
     output = list(frames)
     for index in sorted(range(len(output)), key=lambda value: -output[value].utility):
@@ -495,8 +469,6 @@ def _apply_query_backfill(
             frame_count=block.frame_count,
             frame_tokens=frame_tokens,
             spatial_shape=block.spatial_shape,
-            fov_source=compression_fov_source,
-            fixed_horizontal_degrees=fixed_horizontal_degrees,
         )
         if exact is None:
             continue
@@ -535,8 +507,6 @@ def build_predecessor_retrieval_plan(
     sink_frames: int,
     include_tail_latents: bool,
     query_backfill: bool,
-    compression_fov_source: str,
-    fixed_horizontal_degrees: float,
 ) -> PackedRetrievalPlan:
     if len(ranked_block_indices) != len(ranked_distances):
         raise ValueError("predecessor retrieval ranking and distances must align")
@@ -549,8 +519,6 @@ def build_predecessor_retrieval_plan(
             block_index=int(block_index),
             distance=float(distance),
             frame_tokens=frame_tokens,
-            compression_fov_source=compression_fov_source,
-            fixed_horizontal_degrees=fixed_horizontal_degrees,
         )
         if candidate is not None:
             candidates.append(candidate)
@@ -588,8 +556,6 @@ def build_predecessor_retrieval_plan(
             current_viewmats=current_viewmats,
             current_Ks=current_Ks,
             frame_tokens=frame_tokens,
-            compression_fov_source=compression_fov_source,
-            fixed_horizontal_degrees=fixed_horizontal_degrees,
         )
     frames.sort(key=lambda frame: (frame.virtual_slot_id, frame.source_frame_id))
     used_atoms = sum(frame.atom_count for frame in frames)

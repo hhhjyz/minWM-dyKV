@@ -80,6 +80,7 @@ class DyKVRuntimeTest(unittest.TestCase):
                 frame_count=4,
                 frame_tokens=1,
                 viewmats=poses,
+                Ks=_intrinsics(),
             )
 
         current = torch.stack([_w2c(1.1)] * 4).unsqueeze(0)
@@ -87,6 +88,7 @@ class DyKVRuntimeTest(unittest.TestCase):
             "main",
             current_frame=20,
             current_viewmats=current,
+            current_Ks=_intrinsics(),
             frame_tokens=1,
             target_device="cpu",
         )

@@ -76,19 +76,6 @@ MODEL_PREFIX=minwm_typical4 \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
 
-如果只关心固定 FOV 与相机内参的差异：
-
-```bash
-MBENCH_ROOT=/data/zju-151/jiangyize/research/datasets/MBench-Data/MBench-A \
-ASSIGNMENTS="$PWD/Wan21/prompts/mbench_typical_4.jsonl" \
-CASES=yaw_fixed_fov,yaw_mixed_fov,yaw_intrinsics \
-NUM_OUTPUT_FRAMES=100 \
-SEED=0 \
-OUTPUT_ROOT=output/mbench_typical_4_fov \
-MODEL_PREFIX=minwm_typical4_fov \
-bash Wan21/scripts/inference/run_dykv_cases.sh
-```
-
 当前 predecessor 核心小规模对比：
 
 ```bash

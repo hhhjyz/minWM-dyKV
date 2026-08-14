@@ -40,8 +40,8 @@ conda activate minwm-fa
 | B10 | `predecessor_chunks_latent` | B9 + 单 latent 尾部 | 验证剩余容量带来的历史覆盖收益 | 待运行 |
 | B11 | `predecessor_query_backfill` | B10 + 当前 query coverage 回填 | 推荐完整方案；验证跨度与当前相关性 | 待运行 |
 
-以上 case 均可由 `Wan21/scripts/inference/run_dykv_cases.sh` 统一运行。FOV 来源消融另使用
-`yaw_fixed_fov`、`yaw_mixed_fov` 和 `yaw_intrinsics`，定义见
+以上 case 均可由 `Wan21/scripts/inference/run_dykv_cases.sh` 统一运行。固定 FOV 与混合
+FOV 消融已移除，全部运行统一使用相机内参，定义见
 [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)。
 
 所有实验固定保留最初 4 帧 sink。B0 使用 `4 + 16`，所有 dyKV case B1--B11 使用连续的

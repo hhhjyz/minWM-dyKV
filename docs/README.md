@@ -49,7 +49,7 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - [`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)：当前-query 检索、前驱新增角域四档压缩、`3/4` 装箱与 coverage 回填；
 - [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)：minWM-back 固定压缩率与 chunk 数 A--D 对照；
 - [`ABLATIONS.md`](ABLATIONS.md)：动态压缩、检索与几何设计的消融实验矩阵；
-- [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)：十四个可运行 case 与普通/MBench 统一 runner；
+- [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)：十二个可运行 case 与普通/MBench 统一 runner；
 - [`MBENCH.md`](MBENCH.md)：用例转换、生成与评测流程；
 - [`MBENCH_TYPICAL_SAMPLES.md`](MBENCH_TYPICAL_SAMPLES.md)：四/八个典型样本及小规模对比命令；
 - [`EXPERIMENTS.md`](EXPERIMENTS.md)：实验矩阵、运行命令、环境与实测结果。

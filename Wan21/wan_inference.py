@@ -107,8 +107,6 @@ if args.dykv:
     config.dykv_compression_mode = dykv_case.compression_mode
     config.dykv_compression_keep_ratio = dykv_case.compression_keep_ratio
     config.dykv_packing_mode = dykv_case.packing_mode
-    config.dykv_retrieval_fov_source = dykv_case.retrieval_fov_source
-    config.dykv_compression_fov_source = dykv_case.compression_fov_source
     # Fixed contiguous 4 + 8 + 8 layout: the live cache physically holds the
     # four-frame sink plus the eight-frame local region (recent + current).
     # Retrieved K/V lives in the CPU bank until attention materialization.

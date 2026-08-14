@@ -39,6 +39,10 @@ class DyKVMemoryTest(unittest.TestCase):
             config.sink_frames + config.memory_frames + config.local_frames,
             config.rope_train_frames,
         )
+        self.assertFalse(hasattr(config, "fov_horizontal_degrees"))
+        self.assertFalse(hasattr(config, "fov_vertical_degrees"))
+        self.assertFalse(hasattr(config, "retrieval_fov_source"))
+        self.assertFalse(hasattr(config, "compression_fov_source"))
 
     def test_config_rejects_unaligned_memory_budget(self):
         config = DyKVConfig(enabled=True, memory_frames=6)

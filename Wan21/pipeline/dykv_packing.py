@@ -257,8 +257,6 @@ def build_block_packing_candidate(
     current_viewmats: torch.Tensor,
     current_Ks: torch.Tensor | None,
     frame_tokens: int,
-    compression_fov_source: str,
-    fixed_horizontal_degrees: float,
 ) -> BlockPackingCandidate | None:
     """Create fixed-size chunk and per-frame alternatives for one bank block."""
 
@@ -278,20 +276,9 @@ def build_block_packing_candidate(
         frame_count=block.frame_count,
         frame_tokens=frame_tokens,
         spatial_shape=block.spatial_shape,
-        fov_source=compression_fov_source,
-        fixed_horizontal_degrees=fixed_horizontal_degrees,
     )
     if exact is not None:
         historical_Ks = _single_batch_frames(block.Ks, matrix_size=3)
-        if compression_fov_source == "fixed":
-            focal = 0.5 / math.tan(
-                math.radians(float(fixed_horizontal_degrees)) / 2.0
-            )
-            fixed_K = torch.tensor(
-                [[focal, 0.0, 0.5], [0.0, focal, 0.5], [0.0, 0.0, 1.0]],
-                dtype=torch.float64,
-            )
-            historical_Ks = fixed_K.repeat(block.frame_count, 1, 1)
         if historical_Ks is None:
             return None
         raw_ratios = [
@@ -496,8 +483,6 @@ def build_packed_retrieval_plan(
     memory_frames: int,
     sink_frames: int,
     include_tail_latents: bool,
-    compression_fov_source: str,
-    fixed_horizontal_degrees: float,
 ) -> PackedRetrievalPlan:
     if len(ranked_block_indices) != len(ranked_distances):
         raise ValueError("packed retrieval ranking and distances must align")
@@ -514,8 +499,6 @@ def build_packed_retrieval_plan(
             current_viewmats=current_viewmats,
             current_Ks=current_Ks,
             frame_tokens=frame_tokens,
-            compression_fov_source=compression_fov_source,
-            fixed_horizontal_degrees=fixed_horizontal_degrees,
         )
         if candidate is not None:
             candidates.append(candidate)

@@ -83,8 +83,6 @@ class DyKVPackingTest(unittest.TestCase):
             memory_frames=8,
             sink_frames=4,
             include_tail_latents=True,
-            compression_fov_source="intrinsics",
-            fixed_horizontal_degrees=60.0,
         )
         payload = packing.materialize_packed_retrieval(
             bank, plan, target_device="cpu", frame_tokens=16
@@ -128,8 +126,6 @@ class DyKVPackingTest(unittest.TestCase):
             memory_frames=8,
             sink_frames=4,
             include_tail_latents=True,
-            compression_fov_source="intrinsics",
-            fixed_horizontal_degrees=60.0,
         )
 
         self.assertEqual(plan.selected_full_blocks, (1, 3))

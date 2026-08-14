@@ -44,8 +44,16 @@ class DyKVFOVTest(unittest.TestCase):
 
     def test_identical_view_has_greater_overlap_than_opposite_view(self):
         identity = _w2c()
-        identical = dykv_fov.fov_overlap(identity, identity, self.points)
-        opposite = dykv_fov.fov_overlap(identity, _w2c(yaw_degrees=180), self.points)
+        identical = dykv_fov.fov_overlap(
+            identity, identity, self.points, current_K=_K(), historical_K=_K()
+        )
+        opposite = dykv_fov.fov_overlap(
+            identity,
+            _w2c(yaw_degrees=180),
+            self.points,
+            current_K=_K(),
+            historical_K=_K(),
+        )
         self.assertGreater(float(identical), 0.99)
         self.assertLess(float(opposite), 0.05)
 
@@ -55,40 +63,22 @@ class DyKVFOVTest(unittest.TestCase):
         self.assertAlmostEqual(horizontal[1] - horizontal[0], 89.424168, places=4)
         self.assertAlmostEqual(vertical[1] - vertical[0], 58.224681, places=4)
 
-    def test_missing_intrinsics_explicitly_fall_back_to_fixed_fov(self):
-        horizontal, vertical, source = dykv_fov.angular_fov_bounds(None)
-        self.assertEqual(source, "fixed_fallback")
-        self.assertEqual(horizontal, (-30.0, 30.0))
-        self.assertEqual(vertical, (-17.5, 17.5))
-
-    def test_intrinsics_and_fixed_fov_are_distinct_ablation_cases(self):
-        identity = _w2c()
-        rotated = _w2c(yaw_degrees=70)
-        fixed = dykv_fov.fov_overlap(
-            identity, rotated, self.points, fov_source="fixed"
-        )
-        intrinsics = dykv_fov.fov_overlap(
-            identity,
-            rotated,
-            self.points,
-            current_K=_K(),
-            historical_K=_K(),
-            fov_source="intrinsics",
-        )
-        self.assertLess(float(fixed), 0.03)
-        self.assertGreater(float(intrinsics), 0.10)
+    def test_missing_intrinsics_are_rejected_without_fixed_fov_fallback(self):
+        with self.assertRaisesRegex(ValueError, "intrinsics"):
+            dykv_fov.angular_fov_bounds(None)
 
     def test_selector_prefers_returned_camera_view_and_respects_frame_budget(self):
         current = torch.stack([_w2c(x=0.1)] * 4).unsqueeze(0)
         blocks = [
-            SimpleNamespace(frame_start=4, frame_count=4, viewmats=torch.stack([_w2c(x=0.1)] * 4).unsqueeze(0)),
-            SimpleNamespace(frame_start=8, frame_count=4, viewmats=torch.stack([_w2c(yaw_degrees=180)] * 4).unsqueeze(0)),
-            SimpleNamespace(frame_start=12, frame_count=4, viewmats=torch.stack([_w2c(x=0.2)] * 4).unsqueeze(0)),
+            SimpleNamespace(frame_start=4, frame_count=4, viewmats=torch.stack([_w2c(x=0.1)] * 4).unsqueeze(0), Ks=torch.stack([_K()] * 4).unsqueeze(0)),
+            SimpleNamespace(frame_start=8, frame_count=4, viewmats=torch.stack([_w2c(yaw_degrees=180)] * 4).unsqueeze(0), Ks=torch.stack([_K()] * 4).unsqueeze(0)),
+            SimpleNamespace(frame_start=12, frame_count=4, viewmats=torch.stack([_w2c(x=0.2)] * 4).unsqueeze(0), Ks=torch.stack([_K()] * 4).unsqueeze(0)),
         ]
         selected, ranked, distances = dykv_fov.select_fov_blocks(
             SimpleNamespace(blocks=blocks),
             [0, 1, 2],
             current_viewmats=current,
+            current_Ks=torch.stack([_K()] * 4).unsqueeze(0),
             memory_frames=8,
             probe_points=self.points,
         )
@@ -96,6 +86,16 @@ class DyKVFOVTest(unittest.TestCase):
         self.assertEqual(ranked[:2], [0, 2])
         self.assertEqual(len(distances), 3)
         self.assertLess(distances[0], distances[-1])
+
+    def test_selector_requires_current_intrinsics(self):
+        with self.assertRaisesRegex(ValueError, "intrinsics"):
+            dykv_fov.select_fov_blocks(
+                SimpleNamespace(blocks=[]),
+                [],
+                current_viewmats=torch.stack([_w2c()] * 4).unsqueeze(0),
+                memory_frames=8,
+                probe_points=self.points,
+            )
 
 
 if __name__ == "__main__":

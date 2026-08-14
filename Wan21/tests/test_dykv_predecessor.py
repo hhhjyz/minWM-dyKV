@@ -83,16 +83,12 @@ class DyKVPredecessorTest(unittest.TestCase):
             block_index=1,
             distance=0.1,
             frame_tokens=16,
-            compression_fov_source="intrinsics",
-            fixed_horizontal_degrees=60.0,
         )
         left = predecessor.build_predecessor_candidate(
             left_bank,
             block_index=1,
             distance=0.1,
             frame_tokens=16,
-            compression_fov_source="intrinsics",
-            fixed_horizontal_degrees=60.0,
         )
 
         self.assertEqual(right.keep_tier, 0.5)
@@ -117,8 +113,6 @@ class DyKVPredecessorTest(unittest.TestCase):
             sink_frames=4,
             include_tail_latents=False,
             query_backfill=False,
-            compression_fov_source="intrinsics",
-            fixed_horizontal_degrees=60.0,
         )
         payload = predecessor.materialize_packed_retrieval(
             bank, plan, target_device="cpu", frame_tokens=16
@@ -151,8 +145,6 @@ class DyKVPredecessorTest(unittest.TestCase):
             sink_frames=4,
             include_tail_latents=True,
             query_backfill=True,
-            compression_fov_source="intrinsics",
-            fixed_horizontal_degrees=60.0,
         )
         payload = predecessor.materialize_packed_retrieval(
             bank, plan, target_device="cpu", frame_tokens=16
