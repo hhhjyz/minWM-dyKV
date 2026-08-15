@@ -12,7 +12,7 @@ conda activate minwm-fa
 
 ## 可复现性约定
 
-当前推理使用 `sample_seed=(base_seed+prompt_index) mod 2^63`，case 名称不参与 seed 派生。
+当前推理使用 `sample_seed=(base_seed+prompt_index) mod 2^32`，case 名称不参与 seed 派生。
 因此对应样本跨 case、断点续跑和 case 顺序变化时保持相同初始噪声。正式比较必须核对
 `generation_manifest.jsonl` 中的 `sample_seed` 与 `initial_noise_fingerprint`；旧产物没有这些
 字段，需要重新生成。完整规则见

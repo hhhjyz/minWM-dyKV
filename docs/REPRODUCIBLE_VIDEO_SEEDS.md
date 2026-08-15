@@ -18,9 +18,9 @@
 每个视频使用独立且不包含 case 名称的 sample seed：
 
 ```text
-sample_seed = (base_seed + prompt_index) mod 2^63
-pipeline_seed = (sample_seed + 2^32) mod 2^63
-seed_policy = base_seed_plus_prompt_index_v1
+sample_seed = (base_seed + prompt_index) mod 2^32
+pipeline_seed = (sample_seed + 2^31) mod 2^32
+seed_policy = base_seed_plus_prompt_index_v2
 ```
 
 例如 `SEED=7` 时：
@@ -58,6 +58,11 @@ predecessor_query_backfill
 6. 进入 pipeline 前按独立的 `pipeline_seed` 重置全局 RNG，使 scheduler 内部
    `torch.randn_like` 等后续随机操作也不受之前生成或跳过样本影响，同时避免它与初始
    latent noise 使用同一随机序列前缀。
+
+两个 seed 都被限制在无符号 32 位范围 `[0, 2^32-1]`，这是 Python、NumPy legacy
+`RandomState`、PyTorch 与 CUDA seed API 的共同有效范围。pipeline 使用半个 32 位 seed
+空间的固定偏移，既区别于初始噪声流，也不会触发 NumPy 的 seed 越界错误。早期 v1 曾使用
+`pipeline_seed=sample_seed+2^32`，该值会被 `np.random.seed` 拒绝；v2 已修复这一问题。
 
 因此以下操作不会改变某个固定 `prompt_index` 的初始噪声：
 

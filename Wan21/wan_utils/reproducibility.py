@@ -8,9 +8,12 @@ from collections.abc import Sequence
 import torch
 
 
-_SAMPLE_SEED_MODULUS = 1 << 63
-_PIPELINE_SEED_OFFSET = 1 << 32
-SEED_POLICY = "base_seed_plus_prompt_index_v1"
+# Python's legacy NumPy RandomState, which is reset by wan_utils.misc.set_seed,
+# only accepts unsigned 32-bit seeds.  Keep every public seed in that common
+# domain so the same value is valid for Python, NumPy, PyTorch, and CUDA.
+_SEED_MODULUS = 1 << 32
+_PIPELINE_SEED_OFFSET = 1 << 31
+SEED_POLICY = "base_seed_plus_prompt_index_v2"
 
 
 def derive_sample_seed(base_seed: int, prompt_index: int) -> int:
@@ -19,13 +22,13 @@ def derive_sample_seed(base_seed: int, prompt_index: int) -> int:
     index = int(prompt_index)
     if index < 0:
         raise ValueError("prompt_index must be non-negative")
-    return (int(base_seed) + index) % _SAMPLE_SEED_MODULUS
+    return (int(base_seed) + index) % _SEED_MODULUS
 
 
 def derive_pipeline_seed(sample_seed: int) -> int:
     """Use a stable, disjoint RNG substream for scheduler-side randomness."""
 
-    return (int(sample_seed) + _PIPELINE_SEED_OFFSET) % _SAMPLE_SEED_MODULUS
+    return (int(sample_seed) + _PIPELINE_SEED_OFFSET) % _SEED_MODULUS
 
 
 def sample_initial_noise(
