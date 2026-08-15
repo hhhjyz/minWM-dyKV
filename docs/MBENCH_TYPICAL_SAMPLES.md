@@ -131,3 +131,6 @@ minwm_typical4_yaw_intrinsics_seed0
 
 定性对比时应固定 sample、轨迹和 seed，重点查看向外旋转阶段、最大偏航附近，以及返回原
 视角后的主体身份、背景结构和细节是否恢复。
+当前 runner 会按 `base_seed+prompt_index` 固定每个样本的初始噪声；比较前还应核对两个
+case 的 `generation_manifest.jsonl` 中 sample seed 和初始噪声指纹一致。规则见
+[`REPRODUCIBLE_VIDEO_SEEDS.md`](REPRODUCIBLE_VIDEO_SEEDS.md)。

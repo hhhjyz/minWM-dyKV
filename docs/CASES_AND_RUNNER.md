@@ -95,6 +95,10 @@ Runner 会把结果写到 `OUTPUT_ROOT/{case}/`。生成参数仍可用
 `CONFIG_PATH`、`CHECKPOINT_PATH`、`SP_SIZE` 等原有环境变量覆盖。执行前可设置
 `DRY_RUN=1` 检查所有命令而不加载模型。
 
+所有 case 使用统一的视频级 seed 策略：相同 `SEED` 和 `prompt_index` 会得到相同初始噪声，
+case 名称和跳过已有输出不会改变随机初始条件。生成清单会记录 sample seed 与噪声指纹，
+详见 [`REPRODUCIBLE_VIDEO_SEEDS.md`](REPRODUCIBLE_VIDEO_SEEDS.md)。
+
 ## 4. MBench 一键运行与打包
 
 设置 `MBENCH_ROOT` 后，同一个 runner 会先转换一次用例，再为每个 case 生成并注册独立

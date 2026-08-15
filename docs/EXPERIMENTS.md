@@ -12,12 +12,18 @@ conda activate minwm-fa
 
 ## 可复现性约定
 
+当前推理使用 `sample_seed=(base_seed+prompt_index) mod 2^63`，case 名称不参与 seed 派生。
+因此对应样本跨 case、断点续跑和 case 顺序变化时保持相同初始噪声。正式比较必须核对
+`generation_manifest.jsonl` 中的 `sample_seed` 与 `initial_noise_fingerprint`；旧产物没有这些
+字段，需要重新生成。完整规则见
+[`REPRODUCIBLE_VIDEO_SEEDS.md`](REPRODUCIBLE_VIDEO_SEEDS.md)。
+
 每次运行必须记录：
 
 - Git commit 与工作区是否干净；
 - checkpoint 路径与校验和；
 - prompt/用例清单及选中的 case ID；
-- seed、输出 latent 帧数、分辨率和相机轨迹；
+- base seed、sample seed、pipeline seed、初始噪声指纹、输出 latent 帧数、分辨率和相机轨迹；
 - GPU 型号/数量、PyTorch/CUDA 版本及显存峰值；
 - 生成总耗时与检索耗时；
 - dyKV 记忆预算及最终采用的内部布局；

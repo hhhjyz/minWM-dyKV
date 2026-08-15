@@ -54,6 +54,7 @@ echo "  Config:     $CONFIG_PATH"
 echo "  Checkpoint: $CHECKPOINT_PATH"
 echo "  Output:     $OUTPUT_FOLDER"
 echo "  dyKV case:  $([ "$DYKV" = "1" ] && echo "$DYKV_CASE" || echo baseline)"
+echo "  Seed:       $SEED (sample seed = SEED + prompt index)"
 
 DYKV_ARGS=(--dykv-case "$DYKV_CASE")
 if [ "$DYKV" = "1" ]; then

@@ -159,7 +159,9 @@ bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
 
 这会生成 4 样本 × 2 算法，共 8 个视频。正式比较必须使用相同 checkpoint、assignment、
-轨迹、seed 和已有输出处理规则，并使用全新输出目录。
+轨迹、seed 和已有输出处理规则，并使用全新输出目录。当前推理会让对应 prompt index 跨
+case 使用相同初始噪声；比较前应核对生成清单中的 sample seed 和噪声指纹，详见
+[`REPRODUCIBLE_VIDEO_SEEDS.md`](REPRODUCIBLE_VIDEO_SEEDS.md)。
 
 ## 8. 判读建议
 
@@ -172,5 +174,5 @@ bash Wan21/scripts/inference/run_dykv_cases.sh
 - retrieval 耗时。FOV 有探针投影开销，WorldKV pose 只有小矩阵运算；
 - MBench 指标与人工视频观察，不要只根据几何距离判断优劣。
 
-本次已完成实现、70/70 全量单元测试与双 case runner dry-run，尚未生成这 8 个正式对比
+当前工作树已完成实现、75/75 全量单元测试与双 case runner dry-run，尚未生成这 8 个正式对比
 视频，实验结果保持“待运行”。

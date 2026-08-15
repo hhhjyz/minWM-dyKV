@@ -14,6 +14,13 @@ import json
 from wan_utils.dataset import TextDataset, TextImagePairDataset
 from wan_utils.misc import set_seed
 from wan_utils.camera_trajectory import make_camera_tensors
+from wan_utils.reproducibility import (
+    SEED_POLICY,
+    derive_pipeline_seed,
+    derive_sample_seed,
+    initial_noise_fingerprint,
+    sample_initial_noise,
+)
 from dykv_cases import DYKV_CASES, resolve_dykv_case
 
 from demo_utils.memory import gpu, get_cuda_free_memory_gb, DynamicSwapInstaller
@@ -25,7 +32,12 @@ parser.add_argument("--data_path", type=str, help="Path to the dataset")
 parser.add_argument("--output_folder", type=str, help="Output folder")
 parser.add_argument("--num_output_frames", type=int, default=20, help="Number of overlap frames between sliding windows")
 parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA parameters")
-parser.add_argument("--seed", type=int, default=0, help="Random seed")
+parser.add_argument(
+    "--seed",
+    type=int,
+    default=0,
+    help="Base seed; each video uses base seed + prompt index",
+)
 parser.add_argument("--i2v", action="store_true", help="Whether to perform I2V (or T2V by default)")
 parser.add_argument("--sp_size", type=int, default=1, help="Sequence parallel size (1=disabled)")
 parser.add_argument("--trajectory", type=str, default=None, help="Camera trajectory string (e.g., 'w*19' for camera control)")
@@ -239,13 +251,28 @@ def encode(self, videos: torch.Tensor) -> torch.Tensor:
 chunk0_latencies = []
 
 
-def record_generation(prompt_index, prompt, trajectory, output_path, status):
+def record_generation(
+    prompt_index,
+    prompt,
+    trajectory,
+    output_path,
+    status,
+    *,
+    sample_seed,
+    pipeline_seed,
+    noise_fingerprint=None,
+):
     if local_rank != 0:
         return
     row = {
         "prompt_index": int(prompt_index),
         "prompt": prompt,
         "trajectory": trajectory or "",
+        "base_seed": int(args.seed),
+        "sample_seed": int(sample_seed),
+        "pipeline_seed": int(pipeline_seed),
+        "seed_policy": SEED_POLICY,
+        "initial_noise_fingerprint": noise_fingerprint,
         "dykv_case": str(config.dykv_case),
         "dykv_packing_mode": str(getattr(config, "dykv_packing_mode", "none")),
         "dykv_retrieval_mode": str(getattr(config, "dykv_retrieval_mode", "fov")),
@@ -266,6 +293,8 @@ def record_generation(prompt_index, prompt, trajectory, output_path, status):
 
 for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
     idx = batch_data['idx'].item()
+    sample_seed = derive_sample_seed(args.seed, idx)
+    pipeline_seed = derive_pipeline_seed(sample_seed)
 
     if isinstance(batch_data, dict):
         batch = batch_data
@@ -314,23 +343,44 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
         # For image-to-video, batch contains image and caption
         if os.path.exists(output_path):
             print('Video has been generated. Pass!')
-            record_generation(idx, prompt, traj_str, output_path, "skipped_exists")
+            record_generation(
+                idx,
+                prompt,
+                traj_str,
+                output_path,
+                "skipped_exists",
+                sample_seed=sample_seed,
+                pipeline_seed=pipeline_seed,
+            )
             continue
+        set_seed(sample_seed)
         # Process the image
         image = batch['image'].squeeze(0).unsqueeze(0).unsqueeze(2).to(device=device, dtype=torch.bfloat16)
 
         # Encode the input image as the first latent
         initial_latent = pipeline.vae.encode_to_latent(image).to(device=device, dtype=torch.bfloat16)
         prompts = [prompt] 
-        sampled_noise = torch.randn(
-            [1, args.num_output_frames - 1, 16, 60, 104], device=device, dtype=torch.bfloat16
+        sampled_noise = sample_initial_noise(
+            [1, args.num_output_frames - 1, 16, 60, 104],
+            device=device,
+            dtype=torch.bfloat16,
+            sample_seed=sample_seed,
         )
     else:
         # For text-to-video, batch is just the text prompt
         if os.path.exists(output_path):
             print('Video has been generated. Pass!')
-            record_generation(idx, prompt, traj_str, output_path, "skipped_exists")
+            record_generation(
+                idx,
+                prompt,
+                traj_str,
+                output_path,
+                "skipped_exists",
+                sample_seed=sample_seed,
+                pipeline_seed=pipeline_seed,
+            )
             continue
+        set_seed(sample_seed)
         extended_prompt = batch['extended_prompts'][0] if 'extended_prompts' in batch else None
         if extended_prompt is not None:
             prompts = [extended_prompt] 
@@ -338,9 +388,20 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
             prompts = [prompt] 
 
         initial_latent = None
-        sampled_noise = torch.randn(
-            [1, args.num_output_frames, 16, 60, 104], device=device, dtype=torch.bfloat16
+        sampled_noise = sample_initial_noise(
+            [1, args.num_output_frames, 16, 60, 104],
+            device=device,
+            dtype=torch.bfloat16,
+            sample_seed=sample_seed,
         )
+
+    noise_fingerprint = (
+        initial_noise_fingerprint(sampled_noise) if local_rank == 0 else None
+    )
+    # Initial noise uses its own explicit generator. Scheduler-side randomness
+    # receives a separate stable substream so it is reproducible without being
+    # correlated with the prefix of the initial latent noise.
+    set_seed(pipeline_seed)
 
     # Generate frames
     video, latents = pipeline.inference(
@@ -356,6 +417,11 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
             "prompt_index": int(idx),
             "prompt": prompt,
             "trajectory": traj_str or "",
+            "base_seed": int(args.seed),
+            "sample_seed": int(sample_seed),
+            "pipeline_seed": int(pipeline_seed),
+            "seed_policy": SEED_POLICY,
+            "initial_noise_fingerprint": noise_fingerprint,
             "case": str(config.dykv_case),
             "sink_mode": str(config.sink_mode),
             "sink_frames": int(config.sink_frames),
@@ -386,7 +452,16 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
 
     if not (args.sp_size > 1 and local_rank != 0):
         write_video(output_path, video[0], fps=16)
-        record_generation(idx, prompt, traj_str, output_path, "generated")
+        record_generation(
+            idx,
+            prompt,
+            traj_str,
+            output_path,
+            "generated",
+            sample_seed=sample_seed,
+            pipeline_seed=pipeline_seed,
+            noise_fingerprint=noise_fingerprint,
+        )
     if dist.is_initialized():
         dist.barrier()
 
