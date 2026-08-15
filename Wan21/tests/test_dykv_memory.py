@@ -39,6 +39,7 @@ class DyKVMemoryTest(unittest.TestCase):
             config.sink_frames + config.memory_frames + config.local_frames,
             config.rope_train_frames,
         )
+        self.assertEqual(config.retrieval_mode, "fov")
         self.assertFalse(hasattr(config, "fov_horizontal_degrees"))
         self.assertFalse(hasattr(config, "fov_vertical_degrees"))
         self.assertFalse(hasattr(config, "retrieval_fov_source"))
@@ -57,6 +58,11 @@ class DyKVMemoryTest(unittest.TestCase):
     def test_config_rejects_unknown_compression_mode(self):
         config = DyKVConfig(enabled=True, compression_mode="unknown")
         with self.assertRaisesRegex(ValueError, "compression_mode"):
+            config.validate(chunk_frames=4)
+
+    def test_config_rejects_unknown_retrieval_mode(self):
+        config = DyKVConfig(enabled=True, retrieval_mode="unknown")
+        with self.assertRaisesRegex(ValueError, "retrieval_mode"):
             config.validate(chunk_frames=4)
 
     def test_config_rejects_unknown_packing_mode(self):

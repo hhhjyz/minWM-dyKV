@@ -104,6 +104,7 @@ if args.dykv:
     config.dykv_case = dykv_case.name
     config.dykv_memory_frames = 8
     config.dykv_retrieval_frames = dykv_case.retrieval_frames
+    config.dykv_retrieval_mode = dykv_case.retrieval_mode
     config.dykv_compression_mode = dykv_case.compression_mode
     config.dykv_compression_keep_ratio = dykv_case.compression_keep_ratio
     config.dykv_packing_mode = dykv_case.packing_mode
@@ -247,6 +248,7 @@ def record_generation(prompt_index, prompt, trajectory, output_path, status):
         "trajectory": trajectory or "",
         "dykv_case": str(config.dykv_case),
         "dykv_packing_mode": str(getattr(config, "dykv_packing_mode", "none")),
+        "dykv_retrieval_mode": str(getattr(config, "dykv_retrieval_mode", "fov")),
         "dykv_retrieval_frames": int(
             getattr(config, "dykv_retrieval_frames", 8)
         ),

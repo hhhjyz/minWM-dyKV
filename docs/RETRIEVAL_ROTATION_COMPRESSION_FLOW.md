@@ -740,4 +740,4 @@ SP/GPU 数量和代码 commit，并使用全新输出目录，避免跳过已有
 | `Wan21/pipeline/dykv_runtime.py` | 串联候选、检索、case 路由、规划、实例化和事件记录 |
 | `Wan21/wan/modules/dykv_rope.py` | query/local/retrieval 的有界 time-RoPE rebase 与不变量检查 |
 | `Wan21/wan/modules/causal_model.py` | 组合三区域 K/V 并执行 self-attention |
-| `Wan21/dykv_cases.py` | 十二个可运行 case 的整体注册表 |
+| `Wan21/dykv_cases.py` | 十三个可运行 case 的整体注册表 |

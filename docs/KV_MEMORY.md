@@ -11,7 +11,8 @@
 1. 模型完成一个块的去噪。
 2. 最后一次干净前向将该块写入在线 KV cache。
 3. `DyKVBank.archive_clean_block` 将每个 Transformer 层新增的尾部切片复制到记忆库设备。
-4. 后续块通过 `evicted_candidates` 获取候选集合，再由 FOV 检索从中选择记忆。
+4. 后续块通过 `evicted_candidates` 获取候选集合，再由注册 case 指定的 FOV 或 WorldKV
+   平均位姿选择器从中选择记忆。
 5. `materialize` 仅把选中的 K/V 移到注意力设备，并在此时执行压缩。
 6. 注意力层将该载荷作为中间的 retrieval 区域使用。
 

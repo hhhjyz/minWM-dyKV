@@ -1,5 +1,10 @@
 # FOV 检索
 
+本文描述 `retrieval_mode=fov`。当前另有一个仅用于公平消融的
+`worldkv_pose_no_compression` case，它使用 WorldKV 平均 C2W 位姿得分，不经过本模块；
+两者的固定变量和原仓库非检索差异见
+[`WORLDKV_RETRIEVAL_ABLATION.md`](WORLDKV_RETRIEVAL_ABLATION.md)。
+
 ## 度量方法
 
 dyKV 采用 HY-WorldPlay 的检索策略。对于当前相机位姿 `C` 和历史位姿 `H`，算法在以

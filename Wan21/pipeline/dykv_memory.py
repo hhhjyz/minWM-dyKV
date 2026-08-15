@@ -35,6 +35,7 @@ class DyKVConfig:
     compression_keep_ratio: float = 0.5
     compression_mode: str = "yaw_fov"
     packing_mode: str = "none"
+    retrieval_mode: str = "fov"
     bank_device: str = "cpu"
     fov_samples: int = 8192
     fov_radius: float = 8.0
@@ -67,6 +68,8 @@ class DyKVConfig:
             raise ValueError(
                 "dyKV compression_mode must be none, fixed_novelty, or yaw_fov"
             )
+        if self.retrieval_mode not in {"fov", "worldkv_pose"}:
+            raise ValueError("dyKV retrieval_mode must be fov or worldkv_pose")
         if self.packing_mode not in {
             "none",
             "whole_chunks",

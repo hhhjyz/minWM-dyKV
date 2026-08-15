@@ -89,6 +89,22 @@ MODEL_PREFIX=minwm_typical4_predecessor \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
 
+只比较 WorldKV 原始位姿检索与 FOV 检索：
+
+```bash
+MBENCH_ROOT=/data/zju-151/jiangyize/research/datasets/MBench-Data/MBench-A \
+ASSIGNMENTS="$PWD/Wan21/prompts/mbench_typical_4.jsonl" \
+CASES=retrieval_no_compression,worldkv_pose_no_compression \
+NUM_OUTPUT_FRAMES=100 \
+SEED=0 \
+OUTPUT_ROOT=output/mbench_typical_4_retrieval_ablation \
+MODEL_PREFIX=minwm_retrieval_ablation \
+bash Wan21/scripts/inference/run_dykv_cases.sh
+```
+
+该命令生成 8 个视频；两个 case 只改变检索评分公式。实现边界与日志字段见
+[`WORLDKV_RETRIEVAL_ABLATION.md`](WORLDKV_RETRIEVAL_ABLATION.md)。
+
 将 `mbench_typical_4.jsonl` 替换为 `mbench_typical_8.jsonl` 即可运行八样本方向检查。
 
 MBench 官方 25 秒条件必须使用 100 个 latent 帧，对应 397 个解码视频帧。若只是检查命令

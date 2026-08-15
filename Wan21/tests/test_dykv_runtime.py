@@ -28,6 +28,7 @@ _load("dykv_fov")
 memory = _load("dykv_memory")
 _load("dykv_packing")
 _load("dykv_predecessor")
+_load("dykv_worldkv")
 runtime_module = _load("dykv_runtime")
 
 
@@ -63,6 +64,43 @@ def _cache(value, tokens=4):
 
 
 class DyKVRuntimeTest(unittest.TestCase):
+    def test_worldkv_pose_runtime_uses_same_bank_budget_and_logs_components(self):
+        config = memory.DyKVConfig(
+            enabled=True,
+            retrieval_mode="worldkv_pose",
+            compression_mode="none",
+        )
+        runtime = runtime_module.DyKVRuntime(config, chunk_frames=4)
+        self.assertIsNone(runtime.probe_points)
+        for start, x in zip((0, 4, 8, 12, 16), (0, 1, 8, 2, 3)):
+            poses = torch.stack([_w2c(x)] * 4).unsqueeze(0)
+            runtime.archive(
+                "main",
+                [_cache(start)],
+                frame_start=start,
+                frame_count=4,
+                frame_tokens=1,
+                viewmats=poses,
+                Ks=_intrinsics(),
+            )
+
+        payloads = runtime.retrieve(
+            "main",
+            current_frame=20,
+            current_viewmats=torch.stack([_w2c(1.1)] * 4).unsqueeze(0),
+            frame_tokens=1,
+            target_device="cpu",
+        )
+
+        self.assertEqual(payloads[0]["src_frame_ids"], [4, 12])
+        self.assertEqual(payloads[0]["k"].shape[1], 8)
+        event = runtime.summary()["events"][0]
+        self.assertEqual(event["retrieval_mode"], "worldkv_pose")
+        self.assertEqual(event["selected_frame_starts"], [4, 12])
+        self.assertEqual(len(event["worldkv_translation_squared"]), 3)
+        self.assertEqual(len(event["worldkv_rotation_degrees"]), 3)
+        self.assertEqual(runtime.summary()["retrieval_mode"], "worldkv_pose")
+
     def test_archive_select_compress_pipeline(self):
         config = memory.DyKVConfig(
             enabled=True,

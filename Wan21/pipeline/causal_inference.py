@@ -47,6 +47,7 @@ class CausalInferencePipeline(torch.nn.Module):
                 enabled=bool(getattr(args, "dykv_enabled", False)),
                 memory_frames=int(getattr(args, "dykv_memory_frames", 8)),
                 retrieval_frames=int(getattr(args, "dykv_retrieval_frames", 8)),
+                retrieval_mode=str(getattr(args, "dykv_retrieval_mode", "fov")),
                 sink_frames=int(getattr(args, "sink_frames", 4)),
                 compression_mode=str(getattr(args, "dykv_compression_mode", "yaw_fov")),
                 compression_keep_ratio=float(

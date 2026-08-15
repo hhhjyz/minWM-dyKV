@@ -5,15 +5,16 @@
 所有可直接运行的对照都注册在 `Wan21/dykv_cases.py`。公开接口只增加一个枚举参数
 `--dykv-case`，每个 case 一次性确定压缩方式、检索 FOV 来源和裁剪 FOV 来源，不再暴露
 彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink：baseline 使用
-`fixed sink 4 + rolling local 16`，十一个 dyKV case 使用连续的
+`fixed sink 4 + rolling local 16`，十二个 dyKV case 使用连续的
 `fixed sink 4 + retrieval 8 + local 8`。
 
-## 2. 当前十二个 Case
+## 2. 当前十三个 Case
 
-| Case | Sink | dyKV | 检索 FOV | 检索时压缩 | 裁剪 FOV | 用途 |
+| Case | Sink | dyKV | 检索方法 | 检索时压缩 | 裁剪 FOV | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `baseline` | 固定 4 | 关闭 | — | — | — | 无长期检索的固定 sink 基线 |
-| `retrieval_no_compression` | 固定 4 | 开启 | 相机 `K` | 不压缩 | — | 隔离长期检索收益和最大开销 |
+| `retrieval_no_compression` | 固定 4 | 开启 | FOV overlap（相机 `K`） | 不压缩 | — | 隔离长期检索收益和最大开销 |
+| `worldkv_pose_no_compression` | 固定 4 | 开启 | WorldKV 平均 C2W 位姿 | 不压缩 | — | 与上一行构成只改变检索评分的消融 |
 | `fixed_novelty` | 固定 4 | 开启 | 相机 `K` | 固定锚点 + 新颖性 | — | 与相机无关的压缩对照 |
 | `yaw_intrinsics` | 固定 4 | 开启 | 相机 `K` | 历史相对当前 query 的 yaw 空间列裁剪 | 相机 `K` | E0，兼容默认预设 |
 | `packed_chunks` | 固定 4 | 开启 | 相机 `K` | `{1,1/2,1/4}` 固定档位 | 相机 `K` | E1，32 原子预算内扩充完整 chunk |
@@ -25,10 +26,11 @@
 | `retr12_compression_r050` | 固定 4 | 开启 | 相机 `K` | 3 chunk，anchor + `r=1/2` | — | minWM-back C：12 源帧压到 7.5 帧容量 |
 | `retr16_compression_r033` | 固定 4 | 开启 | 相机 `K` | 4 chunk，anchor + `r=1/3` | — | minWM-back D：16 源帧压到 8 帧容量 |
 
-`baseline` 必须不带 `--dykv`；其余 case 通过 `--dykv --dykv-case NAME` 启用。所有注册
-dyKV case 的检索与几何裁剪统一使用归一化相机内参 `K`，不再提供固定 FOV 或混合 FOV
-case，也没有固定角度回退。当前 query 缺少合法 `K` 时直接报错；缺少 `K` 的历史块不会
-参与 FOV 排序。纯 yaw 分解失败时仍可回退到内容 novelty 压缩，这不是固定 FOV 回退。
+`baseline` 必须不带 `--dykv`；其余 case 通过 `--dykv --dykv-case NAME` 启用。除明确用于
+消融的 `worldkv_pose_no_compression` 外，现有检索和几何裁剪 case 都使用归一化相机内参
+`K`，不再提供固定 FOV 或混合 FOV。WorldKV 位姿检索只使用外参，不使用 `K`；纯 yaw
+裁剪仍需要 `K`。两种检索的公平适配和原仓库其余差异见
+[`WORLDKV_RETRIEVAL_ABLATION.md`](WORLDKV_RETRIEVAL_ABLATION.md)。
 
 为保持已有脚本兼容，单独设置 `DYKV=1` 仍默认运行 `yaw_intrinsics`，不会自动切换到最新
 的 predecessor 方法。需要验证当前完整方案时应显式指定
@@ -53,7 +55,7 @@ LIST_CASES=1 bash Wan21/scripts/inference/run_dykv_cases.sh
 
 ## 3. 普通 Prompt 一键运行
 
-默认顺序运行全部十二组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
+默认顺序运行全部十三组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
 
 ```bash
 conda activate minwm-fa
@@ -70,6 +72,14 @@ bash Wan21/scripts/inference/run_dykv_cases.sh
 ```bash
 CASES=yaw_intrinsics,packed_chunks_latent,predecessor_chunks,predecessor_chunks_latent,predecessor_query_backfill \
 OUTPUT_ROOT=output/dykv_core \
+bash Wan21/scripts/inference/run_dykv_cases.sh
+```
+
+只比较 WorldKV 原始位姿评分与 FOV 检索时运行：
+
+```bash
+CASES=retrieval_no_compression,worldkv_pose_no_compression \
+OUTPUT_ROOT=output/retrieval_algorithm_ablation \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
 

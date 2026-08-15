@@ -191,3 +191,9 @@ block 22 / start 88 / distance 0.2727743
 
 上述是诊断建议，本次没有擅自修改正式检索策略。任何一项实现后都应注册成独立 case，
 保持 seed、轨迹、8-latent retrieval 物理预算和 `4+8+8` RoPE 布局一致。
+
+当前已新增 `worldkv_pose_no_compression`，用于在上述相同预算下把 FOV overlap 替换为
+WorldKV 平均位姿得分。它不会自动解决内容陈旧或候选多样性问题，但可以确认表现下降是否
+主要来自 FOV 评分。仅回放 `j*49,l*49,n*1` 相机轨迹时，20 次 event 中有 19 次选择相同，
+最后一步由 FOV 的 `[4,8]` 变为 WorldKV 的 `[4,88]`；这仍需实际视频验证。公平适配见
+[`WORLDKV_RETRIEVAL_ABLATION.md`](WORLDKV_RETRIEVAL_ABLATION.md)。

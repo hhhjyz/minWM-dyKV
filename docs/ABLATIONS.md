@@ -16,6 +16,7 @@
 | --- | --- | --- | --- |
 | A0 | `baseline` | 固定 4 帧 sink + rolling local 16 | 无长期记忆的基线表现 |
 | A1 | `retrieval_no_compression` | 内参 FOV 检索，不压缩 retrieval KV | 检索本身带来的质量收益与最大开销 |
+| A1-W | `worldkv_pose_no_compression` | WorldKV 平均位姿检索，不压缩 retrieval KV | 与 A1 隔离检索评分公式的影响 |
 | A2 | `fixed_novelty` | 内参检索 + 固定锚点/新颖性压缩 | 与相机无关的内容压缩效果 |
 | A3 | `yaw_intrinsics` | 内参检索 + 当前-query yaw/FOV 裁剪 | E0 兼容默认的质量/效率折中 |
 | A11 | `packed_chunks` | 固定档位 + 完整 chunk 动态装箱 | 将压缩容量转换为更长历史覆盖 |
@@ -28,7 +29,11 @@
 | A18 | `predecessor_query_backfill` | A17 + 当前 query 可见列回填 | 推荐完整方案；检查相关性回填能否减少错误遗忘 |
 
 为兼容已有命令，未指定 case 的 dyKV 推理默认 A3；当前推荐完整方案是 A18。A0--A3、
-A11--A18 均可由 `run_dykv_cases.sh` 一键运行。
+A1-W、A11--A18 均可由 `run_dykv_cases.sh` 一键运行。
+
+A1 与 A1-W 具有相同候选集合、缓存布局、token 预算、填充顺序和 RoPE，只分别使用 FOV
+overlap 与 WorldKV 平均位姿得分。原 WorldKV 仓库中其他不一致项没有混入该消融，详见
+[`WORLDKV_RETRIEVAL_ABLATION.md`](WORLDKV_RETRIEVAL_ABLATION.md)。
 
 A1/A13/A14/A15 对应 minWM-back 的固定预算 A--D。A1 与 A15 物理 retrieval token
 完全相同；A13 与 A14 使用相同 `r=1/2`。详细预算见
@@ -63,7 +68,8 @@ fallback，不能记为 A16--A18 四档消融；必须重新生成并从 `dykv_s
 | A10 | 仅几何裁剪 / 几何后再做新颖性压缩 | 相同历史块 | 测试二阶段压缩的效率上界 |
 
 A4--A7、A9--A10 只作为后续内部实验设计，避免重新制造大量公开超参数。原 A8 固定/
-混合 FOV 消融已经删除：所有正式 case 强制使用相机内参，不再将固定角度作为研究变量。
+混合 FOV 消融已经删除：所有 FOV case 强制使用相机内参，不再将固定角度作为研究变量；
+A1-W 是另一种不使用 FOV 的 WorldKV 外参位姿检索，不属于固定角度 FOV 回退。
 
 ## 4. 检索与压缩解耦消融
 
@@ -73,10 +79,11 @@ A4--A7、A9--A10 只作为后续内部实验设计，避免重新制造大量公
 | --- | --- | --- | --- |
 | R0 | 最近可用块 | 无压缩 | 非几何检索基线 |
 | R1 | 最近可用块 | yaw/FOV 裁剪 | 单独观察压缩收益 |
-| R2 | FOV 检索 | 无压缩 | 单独观察检索收益 |
+| R2-W | WorldKV 平均位姿检索 | 无压缩 | 原检索评分对照，已实现为 A1-W |
+| R2 | FOV 检索 | 无压缩 | 单独观察 FOV 检索收益，已实现为 A1 |
 | R3 | FOV 检索 | 历史相对 query 的 yaw/FOV 裁剪 | E0 query-relative 完整组合 |
 
-当前代码已直接支持 R2/R3；R0/R1 需要增加内部的 recent-only 选择器。四组必须保持原始
+当前代码已直接支持 R2-W/R2/R3；R0/R1 需要增加内部的 recent-only 选择器。各组必须保持原始
 retrieval 帧预算相同。
 
 ## 5. 运动类型与边界消融
@@ -113,7 +120,7 @@ retrieval 帧预算相同。
 - 峰值显存、CPU 无损记忆库字节数；
 - 左/右方向、yaw 分桶和四个 subset 的分组结果。
 
-主结论至少同时报告 A0、A1、A3、A16、A17、A18，不能只报告兼容默认或只报告新方法。
+主结论至少同时报告 A0、A1、A1-W、A3、A16、A17、A18，不能只报告兼容默认或只报告新方法。
 A4--A10 与 R0--R3 用来解释机制，不应在观察结果后只选择有利的子集报告。
 
 动态压缩后用空余 token 容量装入更多 chunk，以及对应的 E0--E6 消融，见

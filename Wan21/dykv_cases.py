@@ -22,6 +22,7 @@ class DyKVCase:
     compression_mode: str
     description: str
     packing_mode: str = "none"
+    retrieval_mode: str = "fov"
     retrieval_frames: int = 8
     compression_keep_ratio: float = 0.5
     sink_mode: str = FIXED_SINK_MODE
@@ -48,6 +49,13 @@ DYKV_CASES = {
             True,
             "none",
             "按相机内参进行 FOV 检索，但不压缩检索 KV",
+        ),
+        DyKVCase(
+            "worldkv_pose_no_compression",
+            True,
+            "none",
+            "WorldKV 原始平均位姿检索，但不压缩检索 KV",
+            retrieval_mode="worldkv_pose",
         ),
         DyKVCase(
             "fixed_novelty",
@@ -157,7 +165,8 @@ def main() -> None:
         marker = " (default)" if case.name == DEFAULT_DYKV_CASE else ""
         print(
             f"{case.name}{marker}\t"
-            f"sink={case.sink_mode}:{case.sink_frames}\t{case.description}"
+            f"sink={case.sink_mode}:{case.sink_frames}\t"
+            f"retrieval={case.retrieval_mode}\t{case.description}"
         )
 
 

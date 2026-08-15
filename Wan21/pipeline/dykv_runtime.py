@@ -15,6 +15,7 @@ from .dykv_packing import (
     materialize_packed_retrieval,
 )
 from .dykv_predecessor import build_predecessor_retrieval_plan
+from .dykv_worldkv import select_worldkv_pose_blocks
 
 
 class DyKVRuntime:
@@ -26,7 +27,7 @@ class DyKVRuntime:
         self.banks: dict[str, DyKVBank] = {}
         self.events: list[dict] = []
         self.probe_points = None
-        if config.enabled:
+        if config.enabled and config.retrieval_mode == "fov":
             self.probe_points = deterministic_sphere_points(
                 config.fov_samples, config.fov_radius, device=config.bank_device
             )
@@ -77,9 +78,14 @@ class DyKVRuntime:
         if not self.config.enabled or current_frame < self.config.rope_train_frames:
             return None
         if current_viewmats is None:
-            raise ValueError("dyKV FOV retrieval requires camera view matrices")
-        if current_Ks is None:
-            raise ValueError("dyKV FOV retrieval requires camera intrinsics K")
+            raise ValueError("dyKV retrieval requires camera view matrices")
+        if (
+            self.config.retrieval_mode == "fov"
+            or self.config.compression_mode == "yaw_fov"
+        ) and current_Ks is None:
+            raise ValueError(
+                "dyKV geometry retrieval/compression requires camera intrinsics K"
+            )
 
         bank = self.bank(branch)
         candidates = bank.evicted_candidates(
@@ -88,15 +94,29 @@ class DyKVRuntime:
             sink_frames=self.config.sink_frames,
         )
         started = time.perf_counter()
-        selected, ranked_candidates, distances = select_fov_blocks(
-            bank,
-            candidates,
-            current_viewmats=current_viewmats,
-            current_Ks=current_Ks,
-            memory_frames=self.config.retrieval_frames,
-            probe_points=self.probe_points,
-            radius=self.config.fov_radius,
-        )
+        retrieval_diagnostics: dict[str, list[float]] = {}
+        if self.config.retrieval_mode == "worldkv_pose":
+            (
+                selected,
+                ranked_candidates,
+                distances,
+                retrieval_diagnostics,
+            ) = select_worldkv_pose_blocks(
+                bank,
+                candidates,
+                current_viewmats=current_viewmats,
+                memory_frames=self.config.retrieval_frames,
+            )
+        else:
+            selected, ranked_candidates, distances = select_fov_blocks(
+                bank,
+                candidates,
+                current_viewmats=current_viewmats,
+                current_Ks=current_Ks,
+                memory_frames=self.config.retrieval_frames,
+                probe_points=self.probe_points,
+                radius=self.config.fov_radius,
+            )
         packing_plan = None
         if self.config.packing_mode == "fixed_worldkv":
             packing_plan = build_fixed_worldkv_retrieval_plan(
@@ -178,6 +198,7 @@ class DyKVRuntime:
             {
                 "branch": branch,
                 "current_frame": int(current_frame),
+                "retrieval_mode": self.config.retrieval_mode,
                 "candidate_block_ids": [bank.blocks[index].block_id for index in candidates],
                 "ranked_candidate_block_ids": [
                     bank.blocks[index].block_id for index in ranked_candidates
@@ -186,6 +207,18 @@ class DyKVRuntime:
                 "selected_frame_starts": [bank.blocks[index].frame_start for index in selected],
                 "materialized_frame_starts": diagnostics.get("src_frame_ids", []),
                 "distances": distances,
+                "worldkv_translation_squared": retrieval_diagnostics.get(
+                    "translation_squared", []
+                ),
+                "worldkv_rotation_degrees": retrieval_diagnostics.get(
+                    "rotation_degrees", []
+                ),
+                "worldkv_translation_normalized": retrieval_diagnostics.get(
+                    "translation_normalized", []
+                ),
+                "worldkv_rotation_normalized": retrieval_diagnostics.get(
+                    "rotation_normalized", []
+                ),
                 "retrieved_tokens_per_layer": int(payloads[0]["k"].shape[1]) if payloads else 0,
                 "raw_tokens_per_layer": int(diagnostics.get("raw_tokens", 0)),
                 "compression_modes": diagnostics.get("compression_modes", []),
@@ -239,6 +272,7 @@ class DyKVRuntime:
             "sink_mode": "fixed",
             "sink_frames": self.config.sink_frames,
             "compression_mode": self.config.compression_mode,
+            "retrieval_mode": self.config.retrieval_mode,
             "packing_mode": self.config.packing_mode,
             "retrieval_frames": self.config.retrieval_frames,
             "compression_keep_ratio": self.config.compression_keep_ratio,

@@ -29,6 +29,7 @@ conda activate minwm-fa
 | --- | --- | --- | --- | --- |
 | B0 | `baseline` | 固定 4 帧 sink + rolling local 16 | 质量/速度基线 | 待运行 |
 | B1 | `retrieval_no_compression` | 不压缩的 dyKV | 单独分析检索收益 | 待运行 |
+| B1-W | `worldkv_pose_no_compression` | WorldKV 平均位姿检索，不压缩 | 与 B1 单变量比较检索评分 | 待运行 |
 | B2 | `fixed_novelty` | 固定内容压缩 dyKV | 与相机无关的压缩对照 | 待运行 |
 | B3 | `yaw_intrinsics` | 当前-query 几何裁剪（E0 兼容默认） | 评估旧动态路径的记忆、速度与质量 | 待运行 |
 | B4 | `packed_chunks` | 固定档位完整 chunk 扩容 | 评估更多完整历史覆盖 | 待运行 |
@@ -41,10 +42,10 @@ conda activate minwm-fa
 | B11 | `predecessor_query_backfill` | B10 + 当前 query coverage 回填 | 推荐完整方案；验证跨度与当前相关性 | 待运行 |
 
 以上 case 均可由 `Wan21/scripts/inference/run_dykv_cases.sh` 统一运行。固定 FOV 与混合
-FOV 消融已移除，全部运行统一使用相机内参，定义见
+FOV 消融已移除；FOV 路径统一使用相机内参，B1-W 则明确只使用 WorldKV 外参位姿得分。定义见
 [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)。
 
-所有实验固定保留最初 4 帧 sink。B0 使用 `4 + 16`，所有 dyKV case B1--B11 使用连续的
+所有实验固定保留最初 4 帧 sink。B0 使用 `4 + 16`，所有 dyKV case 使用连续的
 `4 + 8 + 8` latent：4 帧 sink、8 帧 retrieval、
 8 帧 local（4 帧 recent + 4 帧 current），正好覆盖 20 帧 RoPE 训练窗口。
 动态空间压缩及完整消融矩阵见 [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)
@@ -57,6 +58,8 @@ minWM-back 固定比例 A--D 对照由 B1/B6/B7/B8 构成，具体预算与适�
 [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)。
 B9--B11 的压缩参考系、四档规则和 32 原子精确装箱见
 [`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
+B1 与 B1-W 的唯一实验变量是 FOV overlap 或 WorldKV 平均位姿得分，见
+[`WORLDKV_RETRIEVAL_ABLATION.md`](WORLDKV_RETRIEVAL_ABLATION.md)。
 
 ### 历史精度阻塞与重新运行要求
 
@@ -91,7 +94,7 @@ B1 正式质量指标已经完成，核心结果表仍保持“待运行”。
 - 使用 MBench-A 官方任务分配，并记录准确的 `samples.jsonl` 校验和。
 - 10 秒/25 秒用例分别使用与 checkpoint 对齐的 40/100 个 latent 位姿；报告时同时列出
   解码后的 157/397 帧长度和官方目标 161/401 帧。
-- B0--B11 必须使用相同的用例分配、checkpoint、latent 长度、分辨率和 seed。
+- 表中所有方法必须使用相同的用例分配、checkpoint、latent 长度、分辨率和 seed。
 - 每种方法和每个 seed 分别注册为独立的 MBench `model_id`。
 - 评测前先运行接口约定校验，并记录因缺少 DA3/VLM 产物而跳过的指标。
 
@@ -101,6 +104,7 @@ B1 正式质量指标已经完成，核心结果表仍保持“待运行”。
 | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
 | 待运行 | B0 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 基线 |
 | 待运行 | B1 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 仅检索 |
+| 待运行 | B1-W | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | WorldKV 位姿检索 |
 | 待运行 | B2 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 固定新颖性 |
 | 待运行 | B3 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | E0 兼容默认 |
 | 待运行 | B4 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 完整 chunk 扩容 |
@@ -157,4 +161,4 @@ MBench 分数。
 运行输出位于 `/tmp/minwm_dykv_smoke`，不属于持久化基准产物。该冒烟测试未采集显存峰值，
 因此不报告该数值。该记录对应 commit `d4dcdd2` 的旧三区域布局；切换到连续
 `4 + 8 + 8` 布局后需要重新运行冒烟测试，不能将本行视为新布局的验证结果。正式
-B0--B11 和 MBench 结果仍保持“待运行”，直到完成对应实验。
+表中正式 MBench 结果仍保持“待运行”，直到完成对应实验。

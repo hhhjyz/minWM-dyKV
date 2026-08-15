@@ -19,6 +19,7 @@ class DyKVCasesTest(unittest.TestCase):
             (
                 "baseline",
                 "retrieval_no_compression",
+                "worldkv_pose_no_compression",
                 "fixed_novelty",
                 "yaw_intrinsics",
                 "packed_chunks",
@@ -37,6 +38,18 @@ class DyKVCasesTest(unittest.TestCase):
         self.assertTrue(preset.enabled)
         self.assertEqual(preset.compression_mode, "yaw_fov")
         self.assertEqual(preset.packing_mode, "none")
+        self.assertEqual(preset.retrieval_mode, "fov")
+
+    def test_retrieval_ablation_only_changes_the_ranking_mode(self):
+        fov = cases.get_dykv_case("retrieval_no_compression")
+        worldkv = cases.get_dykv_case("worldkv_pose_no_compression")
+        self.assertEqual(fov.retrieval_mode, "fov")
+        self.assertEqual(worldkv.retrieval_mode, "worldkv_pose")
+        self.assertEqual(fov.compression_mode, worldkv.compression_mode)
+        self.assertEqual(fov.packing_mode, worldkv.packing_mode)
+        self.assertEqual(fov.retrieval_frames, worldkv.retrieval_frames)
+        self.assertEqual(fov.local_frames, worldkv.local_frames)
+        self.assertEqual(fov.sink_frames, worldkv.sink_frames)
 
     def test_no_case_exposes_a_fixed_fov_parameter(self):
         for preset in cases.DYKV_CASES.values():
