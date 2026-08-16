@@ -18,6 +18,37 @@ SPEC.loader.exec_module(adapter)
 
 
 class MBenchAdapterTest(unittest.TestCase):
+    def test_typical_eight_extends_balanced_salient_typical_four(self):
+        prompt_root = WAN21_ROOT / "prompts"
+
+        def load_jsonl(name):
+            return [
+                json.loads(line)
+                for line in (prompt_root / name).read_text().splitlines()
+                if line.strip()
+            ]
+
+        typical_four = load_jsonl("mbench_typical_4.jsonl")
+        typical_eight = load_jsonl("mbench_typical_8.jsonl")
+        self.assertEqual(typical_eight[:4], typical_four)
+        self.assertEqual(
+            [row["subset"] for row in typical_four],
+            ["causal", "environment", "human", "object"],
+        )
+        self.assertEqual(
+            sorted(row["condition_id"] for row in typical_four),
+            ["left_then_right_25s"] * 2 + ["right_then_left_25s"] * 2,
+        )
+        for subset in ("causal", "environment", "human", "object"):
+            self.assertEqual(
+                {
+                    row["condition_id"]
+                    for row in typical_eight
+                    if row["subset"] == subset
+                },
+                {"left_then_right_25s", "right_then_left_25s"},
+            )
+
     def test_all_actions_produce_exact_requested_pose_count(self):
         sys.path.insert(0, str(WAN21_ROOT))
         from wan_utils.camera_trajectory import parse_trajectory
