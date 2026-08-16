@@ -34,6 +34,12 @@ class DyKVCase:
 
         return 8 if self.enabled else 16
 
+    @property
+    def memory_frames(self) -> int:
+        """Virtual retrieval region; baseline intentionally leaves it empty."""
+
+        return 8 if self.enabled else 0
+
 
 DYKV_CASES = {
     case.name: case
@@ -42,7 +48,10 @@ DYKV_CASES = {
             "baseline",
             False,
             "none",
-            "固定前 4 帧 sink + rolling local，不启用长期检索",
+            "tri-region RoPE（4+0+16）+ rolling local，不启用长期检索",
+            retrieval_mode="none",
+            retrieval_frames=0,
+            compression_keep_ratio=1.0,
         ),
         DyKVCase(
             "retrieval_no_compression",

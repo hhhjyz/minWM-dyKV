@@ -12,6 +12,10 @@ output/mbench_typical_4_crop_compare_seed0/retrieval_no_compression/
 `j*49,l*49,n*1` 及其左右镜像。每个 prompt 从 `current_frame=20` 开始产生 20 次 retrieval
 event。诊断读取 `dykv_summaries.jsonl`，并对照当前候选过滤、FOV 排序和三区域 RoPE 代码。
 
+这些产物早于 baseline `4+0+16` tri-region RoPE 修改。下文的 no-compression 检索事件、
+候选顺序和 token 预算诊断仍然成立，但旧 baseline 视频不能再作为当前统一 RoPE 消融的
+质量对照；baseline 与 no-compression 必须在当前提交、相同 seed 和新输出目录下重新生成。
+
 另外检查了两个更早输出：
 
 ```text
@@ -87,7 +91,7 @@ packing_mode:                  none
 baseline 的注意力组成是：
 
 ```text
-sink 0..3 + rolling local 16
+sink 4 + rolling local 16（tri-region 虚拟位置 0..19）
 ```
 
 dyKV 的组成是：
@@ -99,8 +103,10 @@ sink 0..3 + retrieval 8 + local 8
 在 `current_frame=96`，可以近似理解为：
 
 ```text
-baseline : sink 0..3 + recent/current 84..99
-dyKV     : sink 0..3 + retrieved 4..11 + recent/current 92..99
+baseline source : sink 0..3 + recent/current 84..99
+baseline RoPE   : sink 0..3 + recent/current 4..19
+dyKV source     : sink 0..3 + retrieved 4..11 + recent/current 92..99
+dyKV RoPE       : sink 0..3 + retrieval 4..11 + recent/current 12..19
 ```
 
 也就是说，no-compression case 用早期 `[4,12)` 替换了 baseline 中更连续的 `[84,92)`。

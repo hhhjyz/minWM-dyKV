@@ -33,7 +33,7 @@ conda activate minwm-fa
 
 | 运行编号 | Case | 方法 | 目的 | 状态 |
 | --- | --- | --- | --- | --- |
-| B0 | `baseline` | 固定 4 帧 sink + rolling local 16 | 质量/速度基线 | 待运行 |
+| B0 | `baseline` | `4+0+16` tri-region RoPE；固定 sink + rolling local 16 | 统一 RoPE 后的质量/速度基线 | 待运行 |
 | B1 | `retrieval_no_compression` | 不压缩的 dyKV | 单独分析检索收益 | 待运行 |
 | B1-W | `worldkv_pose_no_compression` | WorldKV 平均位姿检索，不压缩 | 与 B1 单变量比较检索评分 | 待运行 |
 | B2 | `fixed_novelty` | 固定内容压缩 dyKV | 与相机无关的压缩对照 | 待运行 |
@@ -51,9 +51,10 @@ conda activate minwm-fa
 FOV 消融已移除；FOV 路径统一使用相机内参，B1-W 则明确只使用 WorldKV 外参位姿得分。定义见
 [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)。
 
-所有实验固定保留最初 4 帧 sink。B0 使用 `4 + 16`，所有 dyKV case 使用连续的
-`4 + 8 + 8` latent：4 帧 sink、8 帧 retrieval、
-8 帧 local（4 帧 recent + 4 帧 current），正好覆盖 20 帧 RoPE 训练窗口。
+所有实验固定保留最初 4 帧 sink，并使用 `0~19` 有界 tri-region RoPE。B0 使用空
+retrieval 的 `4 + 0 + 16`；所有 dyKV case 使用连续的 `4 + 8 + 8` latent：4 帧 sink、
+8 帧 retrieval、8 帧 local（4 帧 recent + 4 帧 current）。两种布局都正好覆盖 20 帧
+RoPE 训练窗口。
 动态空间压缩及完整消融矩阵见 [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)
 和 [`ABLATIONS.md`](ABLATIONS.md)。
 压缩后扩充历史覆盖、latent 尾部补齐和 frame-level RoPE slot folding 已按

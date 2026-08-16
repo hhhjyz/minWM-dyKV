@@ -34,6 +34,29 @@ class DyKVRoPETest(unittest.TestCase):
         self.assertEqual(spec.sink_frames + spec.memory_frames, spec.local_start(4))
         self.assertEqual(spec.query_start(4), 16)
 
+    def test_baseline_layout_is_contiguous_four_zero_sixteen(self):
+        spec = TriRegionSpec(memory_frames=0, local_frames=16)
+        spec.validate(query_frames=4)
+        self.assertEqual(spec.local_start(4), 4)
+        self.assertEqual(spec.query_start(4), 16)
+
+        keys = torch.randn(1, 20, 1, 6)
+        values = torch.arange(20, dtype=torch.float32).reshape(1, 20, 1, 1)
+        composed_k, composed_v = compose_tri_region(
+            {"k": keys, "v": values},
+            local_end_index=20,
+            frame_tokens=1,
+            current_end_frame=44,
+            query_frames=4,
+            freqs=_freqs(64),
+            retrieval=None,
+            spec=spec,
+            dtype=keys.dtype,
+            device=keys.device,
+        )
+        self.assertEqual(composed_k.shape[1], 20)
+        self.assertEqual(composed_v.flatten().tolist(), list(range(20)))
+
     def test_time_shift_round_trip_preserves_spatial_channels(self):
         tensor = torch.randn(1, 5, 2, 6)
         shifted = shift_roped_time(tensor, _freqs(), 7)

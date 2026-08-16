@@ -105,6 +105,20 @@ class DyKVCasesTest(unittest.TestCase):
                     12 if preset.enabled else 20,
                 )
 
+    def test_baseline_uses_empty_retrieval_tri_region_layout(self):
+        baseline = cases.get_dykv_case("baseline")
+        self.assertEqual(
+            (baseline.sink_frames, baseline.memory_frames, baseline.local_frames),
+            (4, 0, 16),
+        )
+        self.assertEqual((baseline.retrieval_mode, baseline.retrieval_frames), ("none", 0))
+        for preset in cases.DYKV_CASES.values():
+            with self.subTest(case=preset.name):
+                self.assertEqual(
+                    preset.sink_frames + preset.memory_frames + preset.local_frames,
+                    20,
+                )
+
     def test_unknown_case_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "unknown dyKV case"):
             cases.get_dykv_case("unknown")

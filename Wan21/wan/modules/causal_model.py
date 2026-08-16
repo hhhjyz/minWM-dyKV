@@ -105,6 +105,7 @@ class CausalWanSelfAttention(nn.Module):
                  local_attn_size=-1,
                  sink_size=0,
                  dykv_enabled=False,
+                 tri_region_rope_enabled=None,
                  dykv_memory_frames=8,
                  dykv_local_frames=8,
                  dykv_rope_train_frames=20,
@@ -118,6 +119,11 @@ class CausalWanSelfAttention(nn.Module):
         self.local_attn_size = local_attn_size
         self.sink_size = sink_size
         self.dykv_enabled = bool(dykv_enabled)
+        self.tri_region_rope_enabled = bool(
+            self.dykv_enabled
+            if tri_region_rope_enabled is None
+            else tri_region_rope_enabled
+        )
         self.dykv_spec = TriRegionSpec(
             sink_frames=int(sink_size),
             memory_frames=int(dykv_memory_frames),
@@ -347,12 +353,12 @@ class CausalWanSelfAttention(nn.Module):
             roped_key = causal_rope_apply(
                 k, grid_sizes, freqs, start_frame=current_start_frame).type_as(v)
 
-            dykv_active = (
-                self.dykv_enabled
+            tri_region_active = (
+                self.tri_region_rope_enabled
                 and current_start_frame >= self.dykv_spec.rope_train_frames
             )
             query_frames = roped_query.shape[1] // frame_seqlen
-            if dykv_active:
+            if tri_region_active:
                 roped_query = rebase_query(
                     roped_query,
                     freqs=freqs,
@@ -389,7 +395,7 @@ class CausalWanSelfAttention(nn.Module):
                 local_start_index = local_end_index - num_new_tokens
                 kv_cache["k"][:, local_start_index:local_end_index] = roped_key
                 kv_cache["v"][:, local_start_index:local_end_index] = v
-            if dykv_active:
+            if tri_region_active:
                 attention_k, attention_v = compose_tri_region(
                     kv_cache,
                     local_end_index=local_end_index,
@@ -483,6 +489,7 @@ class CausalWanAttentionBlock(nn.Module):
                  local_attn_size=-1,
                  sink_size=0,
                  dykv_enabled=False,
+                 tri_region_rope_enabled=None,
                  dykv_memory_frames=8,
                  dykv_local_frames=8,
                  dykv_rope_train_frames=20,
@@ -506,6 +513,7 @@ class CausalWanAttentionBlock(nn.Module):
             local_attn_size=local_attn_size,
             sink_size=sink_size,
             dykv_enabled=dykv_enabled,
+            tri_region_rope_enabled=tri_region_rope_enabled,
             dykv_memory_frames=dykv_memory_frames,
             dykv_local_frames=dykv_local_frames,
             dykv_rope_train_frames=dykv_rope_train_frames,
@@ -674,6 +682,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
                  local_attn_size=-1,
                  sink_size=0,
                  dykv_enabled=False,
+                 tri_region_rope_enabled=None,
                  dykv_memory_frames=8,
                  dykv_local_frames=8,
                  dykv_rope_train_frames=20,
@@ -735,6 +744,11 @@ class CausalWanModel(ModelMixin, ConfigMixin):
         self.num_layers = num_layers
         self.local_attn_size = local_attn_size
         self.dykv_enabled = bool(dykv_enabled)
+        self.tri_region_rope_enabled = bool(
+            self.dykv_enabled
+            if tri_region_rope_enabled is None
+            else tri_region_rope_enabled
+        )
         self.qk_norm = qk_norm
         self.cross_attn_norm = cross_attn_norm
         self.eps = eps
@@ -762,6 +776,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
                 local_attn_size=local_attn_size,
                 sink_size=sink_size,
                 dykv_enabled=dykv_enabled,
+                tri_region_rope_enabled=tri_region_rope_enabled,
                 dykv_memory_frames=dykv_memory_frames,
                 dykv_local_frames=dykv_local_frames,
                 dykv_rope_train_frames=dykv_rope_train_frames,

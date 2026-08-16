@@ -19,8 +19,8 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 
 旧原型暴露了许多彼此独立的开关。minWM-dyKV 改为使用有限数量、整体注册的预设：
 
-- 所有 case 固定保留最初 4 帧 sink；baseline 使用 `4+16`，dyKV 使用连续的
-  `sink 4 | retrieval 8 | local 8` latent；
+- 所有 case 固定保留最初 4 帧 sink，并把长序列 RoPE 限制在 `0~19`；baseline 使用
+  `sink 4 | retrieval 0 | local 16`，dyKV 使用连续的 `sink 4 | retrieval 8 | local 8`；
 - 被逐出的干净 KV 保存在 CPU 记忆库中；
 - 根据注册 case 使用相机 FOV 重叠度或 WorldKV 平均位姿距离对候选记忆排序；
 - 仅在将检索 KV 实例化为注意力输入时执行压缩；

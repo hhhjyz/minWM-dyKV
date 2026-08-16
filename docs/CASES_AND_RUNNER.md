@@ -4,15 +4,15 @@
 
 所有可直接运行的对照都注册在 `Wan21/dykv_cases.py`。公开接口只增加一个枚举参数
 `--dykv-case`，每个 case 一次性确定压缩方式、检索 FOV 来源和裁剪 FOV 来源，不再暴露
-彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink：baseline 使用
-`fixed sink 4 + rolling local 16`，十二个 dyKV case 使用连续的
-`fixed sink 4 + retrieval 8 + local 8`。
+彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink，并使用映射到
+`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，十二个 dyKV case
+使用连续的 `4+8+8`。
 
 ## 2. 当前十三个 Case
 
 | Case | Sink | dyKV | 检索方法 | 检索时压缩 | 裁剪 FOV | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `baseline` | 固定 4 | 关闭 | — | — | — | 无长期检索的固定 sink 基线 |
+| `baseline` | 固定 4 | 关闭 | — | — | — | `4+0+16` tri-region RoPE，无长期检索 |
 | `retrieval_no_compression` | 固定 4 | 开启 | FOV overlap（相机 `K`） | 不压缩 | — | 隔离长期检索收益和最大开销 |
 | `worldkv_pose_no_compression` | 固定 4 | 开启 | WorldKV 平均 C2W 位姿 | 不压缩 | — | 与上一行构成只改变检索评分的消融 |
 | `fixed_novelty` | 固定 4 | 开启 | 相机 `K` | 固定锚点 + 新颖性 | — | 与相机无关的压缩对照 |
@@ -98,6 +98,9 @@ Runner 会把结果写到 `OUTPUT_ROOT/{case}/`。生成参数仍可用
 所有 case 使用统一的视频级 seed 策略：相同 `SEED` 和 `prompt_index` 会得到相同初始噪声，
 case 名称和跳过已有输出不会改变随机初始条件。生成清单会记录 sample seed 与噪声指纹，
 详见 [`REPRODUCIBLE_VIDEO_SEEDS.md`](REPRODUCIBLE_VIDEO_SEEDS.md)。
+
+生成清单同时记录 `tri_region_rope_layout`。当前 baseline 必须为 `[4,0,16]`，其余 case
+必须为 `[4,8,8]`；旧 baseline 产物仍走普通 RoPE，不能与当前 case 做严格消融。
 
 ## 4. MBench 一键运行与打包
 

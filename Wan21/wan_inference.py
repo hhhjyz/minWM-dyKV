@@ -101,12 +101,25 @@ config = OmegaConf.merge(default_config, config)
 
 dykv_case = resolve_dykv_case(args.dykv_case, enabled=args.dykv)
 
-# Every registered case uses the same fixed four-frame sink. In the baseline,
-# the remaining 16 frames are rolling local context. dyKV narrows the live
-# cache to 4 sink + 8 local and supplies the other 8 frames via retrieval.
+# Every registered case uses the same fixed four-frame sink and bounded
+# tri-region RoPE. Baseline has an empty retrieval region (4 + 0 + 16); dyKV
+# uses 4 + 8 + 8. Only dyKV creates the long-term archive/retrieval runtime.
 config.sink_mode = dykv_case.sink_mode
 config.sink_frames = dykv_case.sink_frames
+config.tri_region_rope_enabled = True
+config.tri_region_memory_frames = dykv_case.memory_frames
+config.tri_region_local_frames = dykv_case.local_frames
+config.tri_region_rope_train_frames = 20
+config.dykv_retrieval_frames = dykv_case.retrieval_frames
+config.dykv_retrieval_mode = dykv_case.retrieval_mode
+config.dykv_compression_mode = dykv_case.compression_mode
+config.dykv_compression_keep_ratio = dykv_case.compression_keep_ratio
+config.dykv_packing_mode = dykv_case.packing_mode
 config.model_kwargs.sink_size = dykv_case.sink_frames
+config.model_kwargs.tri_region_rope_enabled = True
+config.model_kwargs.dykv_memory_frames = dykv_case.memory_frames
+config.model_kwargs.dykv_local_frames = dykv_case.local_frames
+config.model_kwargs.dykv_rope_train_frames = 20
 
 if args.dykv:
     chunk_frames = int(config.get("num_frame_per_block", 1))
@@ -115,19 +128,11 @@ if args.dykv:
     config.dykv_enabled = True
     config.dykv_case = dykv_case.name
     config.dykv_memory_frames = 8
-    config.dykv_retrieval_frames = dykv_case.retrieval_frames
-    config.dykv_retrieval_mode = dykv_case.retrieval_mode
-    config.dykv_compression_mode = dykv_case.compression_mode
-    config.dykv_compression_keep_ratio = dykv_case.compression_keep_ratio
-    config.dykv_packing_mode = dykv_case.packing_mode
     # Fixed contiguous 4 + 8 + 8 layout: the live cache physically holds the
     # four-frame sink plus the eight-frame local region (recent + current).
     # Retrieved K/V lives in the CPU bank until attention materialization.
     config.model_kwargs.local_attn_size = dykv_case.sink_frames + dykv_case.local_frames
     config.model_kwargs.dykv_enabled = True
-    config.model_kwargs.dykv_memory_frames = 8
-    config.model_kwargs.dykv_local_frames = 8
-    config.model_kwargs.dykv_rope_train_frames = 20
 else:
     config.dykv_enabled = False
     config.dykv_case = "baseline"
@@ -284,6 +289,13 @@ def record_generation(
         ),
         "sink_mode": str(config.sink_mode),
         "sink_frames": int(config.sink_frames),
+        "tri_region_rope_enabled": bool(config.tri_region_rope_enabled),
+        "tri_region_rope_layout": [
+            int(config.sink_frames),
+            int(config.tri_region_memory_frames),
+            int(config.tri_region_local_frames),
+        ],
+        "tri_region_rope_train_frames": int(config.tri_region_rope_train_frames),
         "output_path": os.path.abspath(output_path),
         "status": status,
     }
@@ -425,6 +437,13 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
             "case": str(config.dykv_case),
             "sink_mode": str(config.sink_mode),
             "sink_frames": int(config.sink_frames),
+            "tri_region_rope_enabled": bool(config.tri_region_rope_enabled),
+            "tri_region_rope_layout": [
+                int(config.sink_frames),
+                int(config.tri_region_memory_frames),
+                int(config.tri_region_local_frames),
+            ],
+            "tri_region_rope_train_frames": int(config.tri_region_rope_train_frames),
             "summary": getattr(pipeline, "last_dykv_summary", {}),
         }
         with open(dykv_events_path, "a", encoding="utf-8") as _f:

@@ -4,9 +4,10 @@
 
 消融实验需要分别回答三个问题：长期 KV 检索是否有效、压缩是否真正减少注意力开销、
 基于相机几何的“保留位置”是否比只调整 token 数量更重要。所有实验统一使用
-`minwm-fa`、相同 checkpoint、相同 case、相同 seed、连续 `4 + 8 + 8` RoPE 布局和
-8 latent 帧物理 retrieval token 预算。非扩容方法的源帧预算也是 8；扩容方法允许覆盖
-更多源帧，但物理 token 仍不得超过 8 个完整 latent。
+`minwm-fa`、相同 checkpoint、相同 case 和相同 seed。所有 case 都使用 `0~19` 有界
+tri-region RoPE：baseline 为 `4+0+16`，dyKV 为 `4+8+8`，后者具有 8 latent 帧物理
+retrieval token 预算。非扩容方法的源帧预算也是 8；扩容方法允许覆盖更多源帧，但物理
+token 仍不得超过 8 个完整 latent。
 
 ## 2. 当前可以直接运行的核心消融
 
@@ -14,7 +15,7 @@
 
 | 编号 | Case | 方法 | 回答的问题 |
 | --- | --- | --- | --- |
-| A0 | `baseline` | 固定 4 帧 sink + rolling local 16 | 无长期记忆的基线表现 |
+| A0 | `baseline` | `4+0+16` tri-region RoPE；固定 sink + rolling local 16 | 无长期记忆的统一 RoPE 基线 |
 | A1 | `retrieval_no_compression` | 内参 FOV 检索，不压缩 retrieval KV | 检索本身带来的质量收益与最大开销 |
 | A1-W | `worldkv_pose_no_compression` | WorldKV 平均位姿检索，不压缩 retrieval KV | 与 A1 隔离检索评分公式的影响 |
 | A2 | `fixed_novelty` | 内参检索 + 固定锚点/新颖性压缩 | 与相机无关的内容压缩效果 |
