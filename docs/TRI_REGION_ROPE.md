@@ -43,9 +43,10 @@ baseline 不创建长期记忆库，也不检索历史 KV，但复用同一套 t
 ## 实现入口与日志
 
 `Wan21/wan_inference.py` 对所有 case 设置 `tri_region_rope_enabled=True`，并根据 case 写入
-`memory_frames/local_frames`。`Wan21/wan/modules/causal_model.py` 将该开关与
-`dykv_enabled` 解耦：前者决定 Q/K 是否 rebase，后者只决定是否创建长期 KV 记忆与检索
-运行时。因此 baseline 可以在 `dykv_enabled=False` 时独立启用有界 RoPE。
+`memory_frames/local_frames`；`Wan21/wan_utils/wan_wrapper.py` 将这些 model kwargs 原样传给
+`CausalWanModel`。`Wan21/wan/modules/causal_model.py` 再将该开关与 `dykv_enabled` 解耦：
+前者决定 Q/K 是否 rebase，后者只决定是否创建长期 KV 记忆与检索运行时。因此 baseline
+可以在 `dykv_enabled=False` 时独立启用有界 RoPE。
 
 每个 `generation_manifest.jsonl` 条目都会记录：
 
