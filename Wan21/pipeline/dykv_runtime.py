@@ -206,6 +206,7 @@ class DyKVRuntime:
                 ),
                 "source_frame_ids": diagnostics.get("source_frame_ids", []),
                 "virtual_slot_ids": diagnostics.get("virtual_slot_ids", []),
+                "retrieval_layout": diagnostics.get("retrieval_layout"),
                 "keep_tiers": diagnostics.get("keep_tiers", []),
                 "packing_budget_atoms": diagnostics.get("packing_budget_atoms", 0),
                 "packing_used_atoms": diagnostics.get("packing_used_atoms", 0),

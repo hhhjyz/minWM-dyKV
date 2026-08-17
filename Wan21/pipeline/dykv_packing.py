@@ -21,6 +21,7 @@ from .dykv_memory import (
 PACKING_ATOM_RATIO = 0.25
 PACKING_ATOMS_PER_SLOT = 4
 KEEP_TIERS = (1.0, 0.75, 0.5, 0.25)
+SOURCE_ORDERED_LAYOUT = "source_ordered"
 
 
 def quantize_keep_tier(overlap_ratio: float) -> float:
@@ -553,7 +554,15 @@ def build_packed_retrieval_plan(
         )
         used_atoms += sum(frame.atom_count for frame in selected_tail)
 
-    packed_frames.sort(key=lambda frame: (frame.virtual_slot_id, frame.source_frame_id))
+    packed_frames.sort(
+        key=lambda frame: (
+            frame.source_frame_id,
+            frame.block_index,
+            frame.frame_offset,
+            frame.virtual_slot_id,
+            frame.selection_kind,
+        )
+    )
     used_tokens = used_atoms * atom_tokens
     actual_tokens = sum(frame.token_count for frame in packed_frames)
     if actual_tokens != used_tokens or used_tokens > int(memory_frames) * int(frame_tokens):
@@ -619,6 +628,7 @@ def materialize_packed_retrieval(
                 "source_frame_ids": [frame.source_frame_id for frame in plan.frames],
                 "frame_token_lengths": frame_lengths,
                 "virtual_slot_ids": [frame.virtual_slot_id for frame in plan.frames],
+                "retrieval_layout": SOURCE_ORDERED_LAYOUT,
                 "parent_block_ids": [
                     bank.blocks[frame.block_index].block_id for frame in plan.frames
                 ],
@@ -784,6 +794,14 @@ def build_fixed_worldkv_retrieval_plan(
     used_tokens = sum(frame.token_count for frame in frames)
     if used_tokens > token_budget:
         raise ValueError("fixed WorldKV payload exceeds retrieval token budget")
+    frames.sort(
+        key=lambda frame: (
+            frame.source_frame_id,
+            frame.block_index,
+            frame.frame_offset,
+            frame.virtual_slot_id,
+        )
+    )
     return FixedWorldKVRetrievalPlan(
         frames=tuple(frames),
         selected_blocks=selected,
@@ -842,6 +860,7 @@ def materialize_fixed_worldkv_retrieval(
                 "source_frame_ids": source_frames,
                 "frame_token_lengths": frame_lengths,
                 "virtual_slot_ids": virtual_slots,
+                "retrieval_layout": SOURCE_ORDERED_LAYOUT,
                 "src_frame_ids": [
                     bank.blocks[index].frame_start for index in plan.selected_blocks
                 ],

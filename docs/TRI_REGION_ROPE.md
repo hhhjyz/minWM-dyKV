@@ -65,11 +65,17 @@ cache 中的 K 和当前 Q 已经应用过 RoPE。因此，重映射只需在复
 `target_position - source_position` 对应的相对旋转，空间高/宽通道保持不变。所有操作
 都会先复制输入，避免多次去噪调用在 cache 或记忆库中累积旋转。
 
-未装箱的完整检索块仍可按块起点重映射。动态装箱和固定 WorldKV case 则
-不能再按整个 chunk 假设固定长度：每个压缩 frame segment 显式携带
-`source_frame_id`、`frame_token_length` 和 `virtual_slot_id`，分别乘以
-`virtual_slot_id - source_frame_id` 的时序旋转。同一虚拟槽可以容纳多个 segment，但其
-token 总数不得超过一个完整 latent；空间高/宽 RoPE 通道保持不变。
+未装箱的完整检索块仍可按块起点重映射。动态装箱和固定 WorldKV case 则不能再按整个
+chunk 假设固定长度：每个压缩 frame segment 显式携带 `source_frame_id`、
+`frame_token_length` 和 `virtual_slot_id`，分别乘以 `virtual_slot_id - source_frame_id` 的
+时序旋转。它们现在按 source frame 原始顺序拼接 K/V 和逐帧 metadata；虚拟 slot 是 RoPE
+标签，因而在 payload 中不要求单调。
+
+`retrieval_layout` 定义三种明确协议：旧 payload 缺省为 `slot_packed`，要求 slot 顺序且每槽
+不超过一个完整 latent；现有装箱 case 使用 `source_ordered`，允许 slot 非单调但仍保留单槽
+容量；后续连续 motion case 使用 `flat_source_ordered`，只保留 `8F` 总预算和 slot 范围。
+在 flat 布局中，一个 frame segment 的物理区间可以跨过 `F` 的整数倍，但整个 segment 仍只
+使用一个 virtual slot，不会被赋予两种时间语义。空间高/宽 RoPE 通道始终不变。
 
 ## 不变量
 
@@ -87,5 +93,6 @@ token 总数不得超过一个完整 latent；空间高/宽 RoPE 通道保持不
 常规 RoPE 注意力路径使用全部三个区域。minWM 额外的 PRoPE 分支仍保持原有的局部 cache
 路径；相机几何信息只负责检索选择，存档时不会在记忆库中重复保存 PRoPE 张量。
 
-当前测试覆盖按块 rebase、多个压缩 segment 共享槽、`1/4` 原子对齐、单槽容量上限、
-query 固定映射到 16--19，以及 baseline 空 retrieval 布局。
+当前测试覆盖按块 rebase、source-order 下的非单调 virtual slot、多个压缩 segment 共享槽、
+flat segment 跨物理 `F` 边界、`1/4` 原子对齐、旧布局单槽容量上限、query 固定映射到
+16--19，以及 baseline 空 retrieval 布局。

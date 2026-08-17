@@ -7,6 +7,18 @@ from dataclasses import dataclass
 import torch
 
 
+PACKED_LAYOUT_SLOT_PACKED = "slot_packed"
+PACKED_LAYOUT_SOURCE_ORDERED = "source_ordered"
+PACKED_LAYOUT_FLAT_SOURCE_ORDERED = "flat_source_ordered"
+PACKED_RETRIEVAL_LAYOUTS = frozenset(
+    {
+        PACKED_LAYOUT_SLOT_PACKED,
+        PACKED_LAYOUT_SOURCE_ORDERED,
+        PACKED_LAYOUT_FLAT_SOURCE_ORDERED,
+    }
+)
+
+
 @dataclass(frozen=True)
 class TriRegionSpec:
     """Frame counts for contiguous ``sink | retrieval | local`` regions.
@@ -115,7 +127,9 @@ def compose_tri_region(
 
     Retrieval payloads may be token-compressed. Legacy payloads shift each chunk
     as a unit. Packed payloads explicitly map each source-frame segment to one
-    virtual retrieval slot.
+    virtual retrieval slot. Source-ordered layouts may carry non-monotonic slot
+    labels; flat source-ordered layouts additionally treat ``memory_frames`` as
+    one total token budget instead of enforcing per-slot physical capacity.
     """
 
     spec.validate(query_frames)
@@ -150,6 +164,13 @@ def compose_tri_region(
         retrieval_k = retrieval["k"].to(device=device, dtype=dtype)
         retrieval_v = retrieval["v"].to(device=device, dtype=dtype)
         if retrieval.get("frame_token_lengths") is not None:
+            retrieval_layout = str(
+                retrieval.get("retrieval_layout", PACKED_LAYOUT_SLOT_PACKED)
+            )
+            if retrieval_layout not in PACKED_RETRIEVAL_LAYOUTS:
+                raise ValueError(
+                    f"unsupported packed retrieval layout: {retrieval_layout}"
+                )
             source_frames = [
                 int(value) for value in retrieval.get("source_frame_ids", [])
             ]
@@ -183,15 +204,22 @@ def compose_tri_region(
                     raise ValueError("packed retrieval frame length is not atom-aligned")
             slot_min = spec.sink_frames
             slot_max = spec.sink_frames + spec.memory_frames - 1
-            if virtual_slots != sorted(virtual_slots) or any(
-                slot < slot_min or slot > slot_max for slot in virtual_slots
-            ):
+            if any(slot < slot_min or slot > slot_max for slot in virtual_slots):
                 raise ValueError("packed retrieval virtual slots are invalid")
-            slot_tokens: dict[int, int] = {}
-            for slot, length in zip(virtual_slots, token_lengths):
-                slot_tokens[slot] = slot_tokens.get(slot, 0) + length
-            if any(tokens > frame_tokens for tokens in slot_tokens.values()):
-                raise ValueError("packed retrieval virtual slot exceeds frame capacity")
+            if retrieval_layout == PACKED_LAYOUT_SLOT_PACKED:
+                if virtual_slots != sorted(virtual_slots):
+                    raise ValueError("packed retrieval virtual slots are not ordered")
+            elif source_frames != sorted(source_frames):
+                raise ValueError("source-ordered retrieval frames are not ordered")
+
+            if retrieval_layout != PACKED_LAYOUT_FLAT_SOURCE_ORDERED:
+                slot_tokens: dict[int, int] = {}
+                for slot, length in zip(virtual_slots, token_lengths):
+                    slot_tokens[slot] = slot_tokens.get(slot, 0) + length
+                if any(tokens > frame_tokens for tokens in slot_tokens.values()):
+                    raise ValueError(
+                        "packed retrieval virtual slot exceeds frame capacity"
+                    )
 
             token_start = 0
             rebased_segments = []

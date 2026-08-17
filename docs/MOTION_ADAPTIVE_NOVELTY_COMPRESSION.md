@@ -1,8 +1,9 @@
 # 连续 FOV 比例驱动的 WorldKV Novelty 压缩
 
-> 状态：设计完成，尚未实现、尚未注册为可运行 case，也没有 checkpoint 或 MBench 结果。
-> 本文中的 case 名称、日志字段和验收条件是后续实现契约，不能在实现前写入当前 case
-> 注册表或默认 runner。
+> 状态：设计完成；source-order materialization 与 flat payload/RoPE 基础协议已实现。
+> A16--A18 的 motion planner、补回/重复策略仍未实现，也尚未注册为可运行 case，没有
+> checkpoint 或 MBench 结果。本文中的计划 case 名称、日志字段和验收条件是后续实现契约，
+> 不能在完整实现前写入当前 case 注册表或默认 runner。
 
 ## 1. 目标
 
@@ -157,6 +158,10 @@ sum(all retrieval segment lengths) <= 8F
 A16--A18 则把 virtual slot 只视为 temporal RoPE 标签。实现时只放宽新 payload 协议，不能
 悄然改变已有 case 的验证语义。
 
+代码通过 `retrieval_layout` 显式区分这两类约束：现有 case 输出 `source_ordered`，按源帧
+拼接但仍检查单槽容量；A16--A18 将输出 `flat_source_ordered`，只检查总 token 预算、源顺序
+与 virtual-slot 范围，不检查单槽容量。未携带该字段的旧 payload 继续按 `slot_packed` 校验。
+
 ### 4.2 可以按原始 KV 时间顺序重新排列
 
 当前 retrieval attention 使用 `causal=False`，K/V 只要执行完全相同的置换，且每个 token
@@ -172,8 +177,10 @@ sort key = (source_frame_id, segment_kind, duplicate_ordinal)
 `virtual_slot_ids` 必须执行同一 segment permutation。
 
 按源顺序不是 attention 正确性的必要条件，但能保持日志可读、方便核对历史时间，并避免
-planner 的装箱顺序成为无意的实验变量。该结论依赖当前无 causal retrieval mask 的实现；
-如果以后根据 flat index 构造 retrieval mask，必须重新验证，不能继续假设可任意置换。
+planner 的装箱顺序成为无意的实验变量。现有 packed 与 fixed-WorldKV materializer 已采用该
+顺序，K/V 与全部逐帧 metadata 同步排列；虚拟 slot 仍保留 planner 分配结果，因此其序列可
+非单调。该结论依赖当前无 causal retrieval mask 的实现；如果以后根据 flat index 构造
+retrieval mask，必须重新验证，不能继续假设可任意置换。
 
 ### 4.3 非 anchor frame 可以跨越 flat offset 边界
 
@@ -209,8 +216,8 @@ virtual slot，单个 slot 的统计负载也可以超过 `F`；硬约束只有 
 
 A18 的 duplicate copy 为了与 A17 对齐 temporal density，继承 A17 被替代位置对应的目标
 slot，同时保留真实 source frame metadata。因此按 source frame 排序后 `virtual_slot_ids`
-不一定单调。计划实现需要删除 packed payload 当前“virtual slot 必须已排序”的非必要检查，
-但仍逐 segment 验证 slot 范围并执行 time-RoPE rebase。
+不一定单调。`source_ordered`/`flat_source_ordered` 协议已经允许这种非单调 slot metadata，
+同时仍逐 segment 验证 slot 范围并执行 time-RoPE rebase。
 
 ## 5. A16：允许欠填
 
@@ -473,13 +480,35 @@ A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 
 | Case | 历史选择 | token 位置选择 | 最终长度 | 主要作用 |
 | --- | --- | --- | --- | --- |
 | `retrieval_no_compression` | 当前 query FOV | 全部 | 固定 8F | 不压缩上界 |
+| `retr16_compression_r033` | 当前 query FOV | anchor + 固定 33% novelty | 固定 8F | 新方法的等预算、四 chunk 主对照 |
 | `retr8_compression_r050` | 当前 query FOV | 固定 50% novelty | 5F | 同 8 源帧的固定比例内容压缩对照 |
 | `yaw_intrinsics` | 当前 query FOV | 几何列裁剪 | 欠填 | 精确几何位置对照 |
+| `packed_chunks_latent` | 当前 query FOV | 量化几何列裁剪 | 不超过 8F | 可变 segment/source-order 压力对照，不作主质量基线 |
 | A16 `motion_novelty_unfilled` | 共同动态选择 | 连续比例 novelty | 欠填 | 新方法基础效果 |
 | A17 `motion_novelty_backfill` | 与 A16 相同 | 基础 + 唯一 token | 目标 8F | 真实额外信息的作用 |
 | A18 `motion_novelty_duplicate` | 与 A16 相同 | 基础 + 重复 token | 与 A17 相同 | 重加权/长度诊断 |
 
-### 13.2 公平性要求
+`retr16_compression_r033` 是首要旧 case：同样有四个历史 chunk、16 个源 latent 和精确 `8F`
+attention 长度，最适合判断连续比例是否优于固定 33%。`retr8_compression_r050` 用于分离“覆盖
+更多历史”与“动态比例”的影响；`retrieval_no_compression` 提供同长度但只有 8 个完整源帧的
+不压缩对照。`packed_chunks_latent` 同时改变列裁剪和量化策略，只用于布局压力测试，不能作为
+单变量主对照。
+
+### 13.2 Source-order 与跨边界基础设施验证
+
+source-order 只对非 causal attention 的 K/V 做同步 permutation，不应单独注册公开质量 case。
+以 `retr16_compression_r033` 为主、`retr12_compression_r050` 与 `packed_chunks_latent` 为压力
+样本，固定相同 selected blocks、token indices、segment lengths 和 virtual slots，只比较旧
+slot-order 与新 source-order，要求输出在数值容差内一致。若不一致，先视为 metadata/RoPE
+排列错误，而不是方法收益。
+
+flat 跨边界会放宽单槽容量，可能改变 temporal position density，因此它需要真正的 planner
+消融：后续对同一 motion base plan 比较 `slot_load<=F` 的 capped packing 与
+`flat_source_ordered`，并保持总 token、selected blocks、token indices 和每段 virtual slot
+分配尽量一致。其外部主基线仍是 `retr16_compression_r033`；不能用已经删除的
+`fixed_novelty`，也不能只与 `packed_chunks_latent` 比较。
+
+### 13.3 公平性要求
 
 - A16--A18 使用相同 commit、checkpoint、prompt assignment、trajectory 和 sample seed；
 - 每个 event 的 candidate ranking、selected blocks、base ratios 和 base indices 必须逐项一致；
@@ -487,7 +516,7 @@ A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 
 - 同时报告质量、retrieval latency、总生成时间、峰值显存和 CPU bank 字节数；
 - A18 只能作为诊断，不与 A16/A17 一起宣称“记住了更多唯一历史”。
 
-### 13.3 分阶段运行
+### 13.4 分阶段运行
 
 1. 合成单元轨迹：静止、纯 yaw、横移、前进、混合旋转位移；
 2. 24 latent 单 prompt checkpoint 冒烟，检查第 20 帧后事件日志；
@@ -495,7 +524,7 @@ A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 
 4. 典型样本通过后再运行八样本和完整 MBench；
 5. 正式结果至少使用多个 seed，并分左右方向与 subset 报告。
 
-### 13.4 结果解释
+### 13.5 结果解释
 
 | 观察 | 支持的解释 |
 | --- | --- |
@@ -523,6 +552,8 @@ A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 
 
 每完成一个模块后单独提交并推送：
 
+0. `Support source-ordered flat retrieval payloads`（已完成）
+   - 现有 packed/fixed payload 按源 KV 顺序物化；flat 协议允许 segment 跨物理 `F` 边界；
 1. `Add continuous motion novelty planning`
    - 连续 FOV ratio、layer-0 novelty 完整排序、数据结构与单元测试；
 2. `Add unfilled motion novelty retrieval case`

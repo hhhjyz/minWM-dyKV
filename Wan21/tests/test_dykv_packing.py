@@ -92,6 +92,10 @@ class DyKVPackingTest(unittest.TestCase):
         self.assertLessEqual(plan.used_tokens, 128)
         self.assertGreater(len(plan.frames), 8)
         self.assertEqual(sum(payload["frame_token_lengths"]), plan.used_tokens)
+        self.assertEqual(payload["retrieval_layout"], "source_ordered")
+        self.assertEqual(
+            payload["source_frame_ids"], sorted(payload["source_frame_ids"])
+        )
         for slot in set(payload["virtual_slot_ids"]):
             slot_tokens = sum(
                 length
@@ -170,6 +174,10 @@ class DyKVPackingTest(unittest.TestCase):
                 self.assertEqual(plan.used_virtual_slots, slots)
                 self.assertEqual(payload["k"].shape[1], tokens)
                 self.assertEqual(len(payload["source_frame_ids"]), retrieval_frames)
+                self.assertEqual(payload["retrieval_layout"], "source_ordered")
+                self.assertEqual(
+                    payload["source_frame_ids"], sorted(payload["source_frame_ids"])
+                )
                 self.assertEqual(
                     sum(payload["frame_token_lengths"]), payload["k"].shape[1]
                 )

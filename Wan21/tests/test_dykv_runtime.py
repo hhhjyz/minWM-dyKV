@@ -209,6 +209,7 @@ class DyKVRuntimeTest(unittest.TestCase):
         event = runtime.summary()["events"][0]
         self.assertEqual(event["packing_mode"], "whole_chunks")
         self.assertEqual(event["packing_used_atoms"], payload["packing_used_atoms"])
+        self.assertEqual(event["retrieval_layout"], "source_ordered")
 
     def test_fixed_worldkv_runtime_retrieves_sixteen_frames_in_eight_frame_budget(self):
         config = memory.DyKVConfig(
@@ -246,6 +247,7 @@ class DyKVRuntimeTest(unittest.TestCase):
         event = runtime.summary()["events"][0]
         self.assertEqual(event["fixed_retrieval_frames"], 16)
         self.assertAlmostEqual(event["fixed_keep_ratio"], 1.0 / 3.0)
+        self.assertEqual(event["retrieval_layout"], "source_ordered")
 
 if __name__ == "__main__":
     unittest.main()

@@ -69,6 +69,13 @@ retrieval region 总计 32 个原子。完整四帧 chunk 优先通过 0/1 背�
 四分之一档位限制，而是按实际 segment token 数装箱；完整 anchor 占一槽，固定比例的
 非 anchor segment 可跨 chunk 共享槽。三者的最大物理容量仍是 8 latent。
 
+装箱完成后，packed 与固定 WorldKV payload 都按原始 `source_frame_id` 顺序重新拼接 K/V；
+逐帧长度、虚拟 slot 和选择 metadata 执行同一排列。现有 case 仍执行每个虚拟 slot 不超过
+一个完整 latent 的容量检查。`flat_source_ordered` 基础协议另外允许后续 motion case 的单个
+非 anchor segment 在 flat tensor 中跨越 `F` 的整数倍，只要总长度不超过 `8F`；跨界不会把
+该 segment 拆成多个 temporal RoPE slot。retrieval event 会记录 `retrieval_layout`，便于在
+正式实验前确认实际采用的校验协议。
+
 ## 公开配置
 
 命令行只暴露 `--dykv` 和有限枚举 `--dykv-case`；区域大小、阈值和装箱参数不作为公开

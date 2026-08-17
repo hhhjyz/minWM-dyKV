@@ -26,6 +26,23 @@ def _freqs(length=32):
 
 
 class DyKVRoPETest(unittest.TestCase):
+    def test_noncausal_attention_is_invariant_to_synchronized_kv_permutation(self):
+        query = torch.randn(1, 3, 2, 6)
+        key = torch.randn(1, 7, 2, 6)
+        value = torch.randn(1, 7, 2, 4)
+        permutation = torch.tensor([4, 0, 6, 2, 1, 5, 3])
+
+        def attend(keys, values):
+            scores = torch.einsum("bqhd,bkhd->bhqk", query, keys)
+            weights = torch.softmax(scores / query.shape[-1] ** 0.5, dim=-1)
+            return torch.einsum("bhqk,bkhd->bqhd", weights, values)
+
+        expected = attend(key, value)
+        actual = attend(
+            key.index_select(1, permutation), value.index_select(1, permutation)
+        )
+        self.assertTrue(torch.allclose(expected, actual, atol=1e-6))
+
     def test_default_layout_is_contiguous_four_eight_eight(self):
         spec = TriRegionSpec()
         self.assertEqual(spec.sink_frames, 4)
@@ -125,7 +142,8 @@ class DyKVRoPETest(unittest.TestCase):
             "v": retrieval_v,
             "source_frame_ids": [20, 21, 30],
             "frame_token_lengths": [2, 2, 2],
-            "virtual_slot_ids": [4, 4, 5],
+            "virtual_slot_ids": [5, 4, 5],
+            "retrieval_layout": "source_ordered",
         }
 
         composed_k, composed_v = compose_tri_region(
@@ -143,7 +161,7 @@ class DyKVRoPETest(unittest.TestCase):
 
         expected = torch.cat(
             [
-                shift_roped_time(retrieval_k[:, :2], _freqs(64), 4 - 20),
+                shift_roped_time(retrieval_k[:, :2], _freqs(64), 5 - 20),
                 shift_roped_time(retrieval_k[:, 2:4], _freqs(64), 4 - 21),
                 shift_roped_time(retrieval_k[:, 4:], _freqs(64), 5 - 30),
             ],
@@ -152,6 +170,66 @@ class DyKVRoPETest(unittest.TestCase):
         self.assertTrue(torch.allclose(composed_k[:, 16:22], expected))
         self.assertEqual(composed_v[:, 16:22].flatten().tolist(), list(range(100, 106)))
         self.assertTrue(retrieval_k.equal(retrieval["k"]))
+
+    def test_flat_source_ordered_layout_allows_segments_to_cross_slot_boundaries(self):
+        keys = torch.randn(1, 24, 1, 6)
+        values = torch.arange(24, dtype=torch.float32).reshape(1, 24, 1, 1)
+        retrieval_k = torch.randn(1, 6, 1, 6)
+        retrieval_v = torch.arange(100, 106, dtype=torch.float32).reshape(1, 6, 1, 1)
+        retrieval = {
+            "k": retrieval_k,
+            "v": retrieval_v,
+            "source_frame_ids": [20, 21],
+            "frame_token_lengths": [3, 3],
+            "virtual_slot_ids": [4, 4],
+            "retrieval_layout": "flat_source_ordered",
+        }
+
+        composed_k, composed_v = compose_tri_region(
+            {"k": keys, "v": values},
+            local_end_index=24,
+            frame_tokens=4,
+            current_end_frame=44,
+            query_frames=4,
+            freqs=_freqs(64),
+            retrieval=retrieval,
+            spec=TriRegionSpec(),
+            dtype=keys.dtype,
+            device=keys.device,
+        )
+
+        expected = torch.cat(
+            [
+                shift_roped_time(retrieval_k[:, :3], _freqs(64), 4 - 20),
+                shift_roped_time(retrieval_k[:, 3:], _freqs(64), 4 - 21),
+            ],
+            dim=1,
+        )
+        self.assertTrue(torch.allclose(composed_k[:, 16:22], expected))
+        self.assertEqual(composed_v[:, 16:22].flatten().tolist(), list(range(100, 106)))
+
+    def test_source_ordered_layout_rejects_out_of_order_source_frames(self):
+        retrieval = {
+            "k": torch.randn(1, 4, 1, 6),
+            "v": torch.randn(1, 4, 1, 1),
+            "source_frame_ids": [21, 20],
+            "frame_token_lengths": [2, 2],
+            "virtual_slot_ids": [4, 5],
+            "retrieval_layout": "source_ordered",
+        }
+        with self.assertRaisesRegex(ValueError, "source-ordered.*not ordered"):
+            compose_tri_region(
+                {"k": torch.randn(1, 24, 1, 6), "v": torch.randn(1, 24, 1, 1)},
+                local_end_index=24,
+                frame_tokens=4,
+                current_end_frame=44,
+                query_frames=4,
+                freqs=_freqs(64),
+                retrieval=retrieval,
+                spec=TriRegionSpec(),
+                dtype=torch.float32,
+                device=torch.device("cpu"),
+            )
 
     def test_packed_slot_capacity_is_enforced(self):
         retrieval = {
