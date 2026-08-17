@@ -25,6 +25,7 @@ class DyKVCase:
     retrieval_mode: str = "fov"
     retrieval_frames: int = 8
     compression_keep_ratio: float = 0.5
+    retrieval_layout: str = "source_ordered"
     sink_mode: str = FIXED_SINK_MODE
     sink_frames: int = FIXED_SINK_FRAMES
 
@@ -103,6 +104,16 @@ DYKV_CASES = {
             packing_mode="fixed_worldkv",
             retrieval_frames=12,
             compression_keep_ratio=0.5,
+        ),
+        DyKVCase(
+            "retr16_r033_slot_packed",
+            True,
+            "fixed_novelty",
+            "retr16 固定 1/3 novelty 的旧 slot-order 布局诊断",
+            packing_mode="fixed_worldkv",
+            retrieval_frames=16,
+            compression_keep_ratio=1.0 / 3.0,
+            retrieval_layout="slot_packed",
         ),
         DyKVCase(
             "retr16_compression_r033",

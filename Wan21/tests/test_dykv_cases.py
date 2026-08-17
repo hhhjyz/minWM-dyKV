@@ -25,6 +25,7 @@ class DyKVCasesTest(unittest.TestCase):
                 "packed_chunks_latent",
                 "retr8_compression_r050",
                 "retr12_compression_r050",
+                "retr16_r033_slot_packed",
                 "retr16_compression_r033",
             ),
         )
@@ -62,6 +63,7 @@ class DyKVCasesTest(unittest.TestCase):
         expected = {
             "retr8_compression_r050": (8, 0.5),
             "retr12_compression_r050": (12, 0.5),
+            "retr16_r033_slot_packed": (16, 1.0 / 3.0),
             "retr16_compression_r033": (16, 1.0 / 3.0),
         }
         for name, (retrieval_frames, keep_ratio) in expected.items():
@@ -70,6 +72,26 @@ class DyKVCasesTest(unittest.TestCase):
                 self.assertEqual(preset.packing_mode, "fixed_worldkv")
                 self.assertEqual(preset.retrieval_frames, retrieval_frames)
                 self.assertAlmostEqual(preset.compression_keep_ratio, keep_ratio)
+        slot_order = cases.get_dykv_case("retr16_r033_slot_packed")
+        source_order = cases.get_dykv_case("retr16_compression_r033")
+        self.assertEqual(slot_order.retrieval_layout, "slot_packed")
+        self.assertEqual(source_order.retrieval_layout, "source_ordered")
+        self.assertEqual(
+            (
+                slot_order.retrieval_mode,
+                slot_order.compression_mode,
+                slot_order.packing_mode,
+                slot_order.retrieval_frames,
+                slot_order.compression_keep_ratio,
+            ),
+            (
+                source_order.retrieval_mode,
+                source_order.compression_mode,
+                source_order.packing_mode,
+                source_order.retrieval_frames,
+                source_order.compression_keep_ratio,
+            ),
+        )
         self.assertEqual(
             cases.get_dykv_case("packed_chunks_latent").packing_mode,
             "whole_chunks_and_latents",

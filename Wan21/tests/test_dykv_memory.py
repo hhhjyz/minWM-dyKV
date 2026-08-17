@@ -70,6 +70,11 @@ class DyKVMemoryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "packing_mode"):
             config.validate(chunk_frames=4)
 
+    def test_config_rejects_unknown_retrieval_layout(self):
+        config = DyKVConfig(enabled=True, retrieval_layout="unknown")
+        with self.assertRaisesRegex(ValueError, "retrieval_layout"):
+            config.validate(chunk_frames=4)
+
     def test_fixed_worldkv_allows_source_coverage_above_physical_memory(self):
         config = DyKVConfig(
             enabled=True,

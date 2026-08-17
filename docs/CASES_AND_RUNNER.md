@@ -5,10 +5,10 @@
 所有可直接运行的对照都注册在 `Wan21/dykv_cases.py`。公开接口只增加一个枚举参数
 `--dykv-case`，每个 case 一次性确定压缩方式、检索 FOV 来源和裁剪 FOV 来源，不再暴露
 彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink，并使用映射到
-`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，八个 dyKV case
+`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，九个 dyKV case
 使用连续的 `4+8+8`。
 
-## 2. 当前九个 Case
+## 2. 当前十个 Case
 
 | Case | Sink | dyKV | 检索方法 | 检索时压缩 | 裁剪 FOV | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -20,6 +20,7 @@
 | `packed_chunks_latent` | 固定 4 | 开启 | 相机 `K` | 固定档位 + 单 latent 尾部 | 相机 `K` | E2，完整 chunk 后继续补齐余量 |
 | `retr8_compression_r050` | 固定 4 | 开启 | 相机 `K` | 2 chunk，anchor + `r=1/2` | — | minWM-back B：8 源帧压到 5 帧容量 |
 | `retr12_compression_r050` | 固定 4 | 开启 | 相机 `K` | 3 chunk，anchor + `r=1/2` | — | minWM-back C：12 源帧压到 7.5 帧容量 |
+| `retr16_r033_slot_packed` | 固定 4 | 开启 | 相机 `K` | 与 D 相同，按 virtual slot 拼接 | — | D 的旧 slot-order 排列诊断 |
 | `retr16_compression_r033` | 固定 4 | 开启 | 相机 `K` | 4 chunk，anchor + `r=1/3` | — | minWM-back D：16 源帧压到 8 帧容量 |
 
 `baseline` 必须不带 `--dykv`；其余 case 通过 `--dykv --dykv-case NAME` 启用。除明确用于
@@ -32,6 +33,10 @@
 
 固定 WorldKV A--D 的预算公式、与旧实现的差异及运行方式见
 [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)。
+
+`retr16_r033_slot_packed` 与 `retr16_compression_r033` 的检索、novelty token、segment 长度、
+virtual slot 和 `8F` 预算完全一致，只分别按 virtual slot 与 source frame 排列 payload。
+该 case 用于验证非 causal attention 下同步 K/V permutation 的等价性，不是新的压缩方法。
 
 ### 计划中、尚不可运行的连续比例 Case
 

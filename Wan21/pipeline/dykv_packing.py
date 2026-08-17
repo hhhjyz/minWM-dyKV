@@ -21,7 +21,45 @@ from .dykv_memory import (
 PACKING_ATOM_RATIO = 0.25
 PACKING_ATOMS_PER_SLOT = 4
 KEEP_TIERS = (1.0, 0.75, 0.5, 0.25)
+SLOT_PACKED_LAYOUT = "slot_packed"
 SOURCE_ORDERED_LAYOUT = "source_ordered"
+FLAT_SOURCE_ORDERED_LAYOUT = "flat_source_ordered"
+RETRIEVAL_LAYOUTS = {
+    SLOT_PACKED_LAYOUT,
+    SOURCE_ORDERED_LAYOUT,
+    FLAT_SOURCE_ORDERED_LAYOUT,
+}
+
+
+def _frames_for_layout(frames, retrieval_layout: str):
+    layout = str(retrieval_layout)
+    if layout not in RETRIEVAL_LAYOUTS:
+        raise ValueError(f"unsupported retrieval layout: {layout}")
+    if layout == SLOT_PACKED_LAYOUT:
+        return tuple(
+            sorted(
+                frames,
+                key=lambda frame: (
+                    frame.virtual_slot_id,
+                    frame.source_frame_id,
+                    frame.block_index,
+                    frame.frame_offset,
+                    frame.selection_kind,
+                ),
+            )
+        )
+    return tuple(
+        sorted(
+            frames,
+            key=lambda frame: (
+                frame.source_frame_id,
+                frame.block_index,
+                frame.frame_offset,
+                frame.virtual_slot_id,
+                frame.selection_kind,
+            ),
+        )
+    )
 
 
 def quantize_keep_tier(overlap_ratio: float) -> float:
@@ -594,18 +632,20 @@ def materialize_packed_retrieval(
     *,
     target_device: torch.device | str,
     frame_tokens: int,
+    retrieval_layout: str = SOURCE_ORDERED_LAYOUT,
 ) -> list[dict]:
     if not plan.frames:
         return []
-    layer_count = len(bank.blocks[plan.frames[0].block_index].layers)
-    if any(len(bank.blocks[frame.block_index].layers) != layer_count for frame in plan.frames):
+    frames = _frames_for_layout(plan.frames, retrieval_layout)
+    layer_count = len(bank.blocks[frames[0].block_index].layers)
+    if any(len(bank.blocks[frame.block_index].layers) != layer_count for frame in frames):
         raise RuntimeError("packed retrieval bank blocks have inconsistent layer counts")
     device = torch.device(target_device)
     payloads = []
     for layer_index in range(layer_count):
         key_parts = []
         value_parts = []
-        for frame in plan.frames:
+        for frame in frames:
             block = bank.blocks[frame.block_index]
             source_start = int(frame.frame_offset) * int(frame_tokens)
             indices = frame.token_indices.to(device=device) + source_start
@@ -615,40 +655,40 @@ def materialize_packed_retrieval(
             value_parts.append(raw_v.index_select(1, indices))
         packed_k = torch.cat(key_parts, dim=1)
         packed_v = torch.cat(value_parts, dim=1)
-        frame_lengths = [frame.token_count for frame in plan.frames]
+        frame_lengths = [frame.token_count for frame in frames]
         if int(packed_k.shape[1]) != plan.used_tokens:
             raise RuntimeError("materialized retrieval length differs from packing plan")
         payloads.append(
             {
                 "k": packed_k,
                 "v": packed_v,
-                "src_frame_ids": [frame.source_frame_id for frame in plan.frames],
-                "chunk_frame_counts": [1] * len(plan.frames),
+                "src_frame_ids": [frame.source_frame_id for frame in frames],
+                "chunk_frame_counts": [1] * len(frames),
                 "chunk_token_lengths": frame_lengths,
-                "source_frame_ids": [frame.source_frame_id for frame in plan.frames],
+                "source_frame_ids": [frame.source_frame_id for frame in frames],
                 "frame_token_lengths": frame_lengths,
-                "virtual_slot_ids": [frame.virtual_slot_id for frame in plan.frames],
-                "retrieval_layout": SOURCE_ORDERED_LAYOUT,
+                "virtual_slot_ids": [frame.virtual_slot_id for frame in frames],
+                "retrieval_layout": str(retrieval_layout),
                 "parent_block_ids": [
-                    bank.blocks[frame.block_index].block_id for frame in plan.frames
+                    bank.blocks[frame.block_index].block_id for frame in frames
                 ],
-                "selection_kinds": [frame.selection_kind for frame in plan.frames],
-                "keep_tiers": [frame.keep_tier for frame in plan.frames],
+                "selection_kinds": [frame.selection_kind for frame in frames],
+                "keep_tiers": [frame.keep_tier for frame in frames],
                 "raw_overlap_ratios": [
-                    frame.raw_overlap_ratio for frame in plan.frames
+                    frame.raw_overlap_ratio for frame in frames
                 ],
                 "compression_modes": [
-                    frame.compression_mode for frame in plan.frames
+                    frame.compression_mode for frame in frames
                 ],
                 "kept_tokens_per_frame": frame_lengths,
                 "kept_columns_per_frame": [
-                    list(frame.kept_columns) for frame in plan.frames
+                    list(frame.kept_columns) for frame in frames
                 ],
                 "delta_yaw_degrees": [
-                    frame.delta_yaw_degrees for frame in plan.frames
+                    frame.delta_yaw_degrees for frame in frames
                 ],
                 "horizontal_fov_degrees": [
-                    frame.horizontal_fov_degrees for frame in plan.frames
+                    frame.horizontal_fov_degrees for frame in frames
                 ],
                 "selected_full_block_ids": [
                     bank.blocks[index].block_id for index in plan.selected_full_blocks
@@ -661,7 +701,7 @@ def materialize_packed_retrieval(
                 "packing_used_atoms": plan.used_atoms,
                 "packing_atom_tokens": int(frame_tokens) // PACKING_ATOMS_PER_SLOT,
                 "packing_used_virtual_slots": plan.used_virtual_slots,
-                "raw_tokens": len(plan.frames) * int(frame_tokens),
+                "raw_tokens": len(frames) * int(frame_tokens),
                 "kept_tokens": int(packed_k.shape[1]),
                 "token_budget": plan.token_budget,
             }
@@ -822,24 +862,26 @@ def materialize_fixed_worldkv_retrieval(
     *,
     target_device: torch.device | str,
     frame_tokens: int,
+    retrieval_layout: str = SOURCE_ORDERED_LAYOUT,
 ) -> list[dict]:
     if not plan.frames:
         return []
-    layer_count = len(bank.blocks[plan.frames[0].block_index].layers)
+    frames = _frames_for_layout(plan.frames, retrieval_layout)
+    layer_count = len(bank.blocks[frames[0].block_index].layers)
     if any(
         len(bank.blocks[frame.block_index].layers) != layer_count
-        for frame in plan.frames
+        for frame in frames
     ):
         raise RuntimeError("fixed WorldKV bank blocks have inconsistent layer counts")
     device = torch.device(target_device)
     payloads = []
-    frame_lengths = [frame.token_count for frame in plan.frames]
-    source_frames = [frame.source_frame_id for frame in plan.frames]
-    virtual_slots = [frame.virtual_slot_id for frame in plan.frames]
+    frame_lengths = [frame.token_count for frame in frames]
+    source_frames = [frame.source_frame_id for frame in frames]
+    virtual_slots = [frame.virtual_slot_id for frame in frames]
     for layer_index in range(layer_count):
         key_parts = []
         value_parts = []
-        for frame in plan.frames:
+        for frame in frames:
             block = bank.blocks[frame.block_index]
             source_start = frame.frame_offset * int(frame_tokens)
             indices = frame.token_indices.to(device=device) + source_start
@@ -860,7 +902,7 @@ def materialize_fixed_worldkv_retrieval(
                 "source_frame_ids": source_frames,
                 "frame_token_lengths": frame_lengths,
                 "virtual_slot_ids": virtual_slots,
-                "retrieval_layout": SOURCE_ORDERED_LAYOUT,
+                "retrieval_layout": str(retrieval_layout),
                 "src_frame_ids": [
                     bank.blocks[index].frame_start for index in plan.selected_blocks
                 ],
@@ -874,10 +916,10 @@ def materialize_fixed_worldkv_retrieval(
                     for index in plan.selected_blocks
                 ],
                 "parent_block_ids": [
-                    bank.blocks[frame.block_index].block_id for frame in plan.frames
+                    bank.blocks[frame.block_index].block_id for frame in frames
                 ],
-                "selection_kinds": [frame.selection_kind for frame in plan.frames],
-                "compression_modes": ["fixed_worldkv_anchor_novelty"] * len(plan.frames),
+                "selection_kinds": [frame.selection_kind for frame in frames],
+                "compression_modes": ["fixed_worldkv_anchor_novelty"] * len(frames),
                 "kept_tokens_per_frame": frame_lengths,
                 "fixed_keep_ratio": plan.keep_ratio,
                 "fixed_retrieval_frames": plan.retrieval_frames,

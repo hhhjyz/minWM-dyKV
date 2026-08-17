@@ -20,10 +20,15 @@ retrieval token 预算下，检索更多原始历史 chunk 是否优于保留较
 | B | `retr8_compression_r050` | 8 latent | 2 | 1/2 | 2.5 latent | 5 latent |
 | C | `retr12_compression_r050` | 12 latent | 3 | 1/2 | 2.5 latent | 7.5 latent |
 | D | `retr16_compression_r033` | 16 latent | 4 | 1/3 | 2 latent | 8 latent |
+| D-slot | `retr16_r033_slot_packed` | 16 latent | 4 | 1/3 | 2 latent | 8 latent |
 
 对于每帧 1560 token，四组实际 retrieval token 分别是 12480、7800、11700、12480。
 A 与 D 具有完全相同的物理预算，但 D 覆盖两倍源历史；B 与 C 使用相同压缩率，用于检查
 压缩节省的容量是否应该转换成更多 chunk。
+
+D-slot 与 D 只改变 materialization 顺序：D-slot 按 `virtual_slot_id` 分组，D 按
+`source_frame_id` 排列。两者的 token 多重集合与 RoPE 目标位置完全相同，用于布局正确性
+诊断，不能作为两种压缩算法解释。
 
 ## 3. 对当前三区域设计的适配
 

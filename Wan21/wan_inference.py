@@ -115,6 +115,7 @@ config.dykv_retrieval_mode = dykv_case.retrieval_mode
 config.dykv_compression_mode = dykv_case.compression_mode
 config.dykv_compression_keep_ratio = dykv_case.compression_keep_ratio
 config.dykv_packing_mode = dykv_case.packing_mode
+config.dykv_retrieval_layout = dykv_case.retrieval_layout
 config.model_kwargs.sink_size = dykv_case.sink_frames
 config.model_kwargs.tri_region_rope_enabled = True
 config.model_kwargs.dykv_memory_frames = dykv_case.memory_frames
@@ -286,6 +287,9 @@ def record_generation(
         ),
         "dykv_compression_keep_ratio": float(
             getattr(config, "dykv_compression_keep_ratio", 0.5)
+        ),
+        "dykv_retrieval_layout": str(
+            getattr(config, "dykv_retrieval_layout", "source_ordered")
         ),
         "sink_mode": str(config.sink_mode),
         "sink_frames": int(config.sink_frames),

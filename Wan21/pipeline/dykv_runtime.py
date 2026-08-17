@@ -132,6 +132,7 @@ class DyKVRuntime:
                 packing_plan,
                 target_device=target_device,
                 frame_tokens=frame_tokens,
+                retrieval_layout=self.config.retrieval_layout,
             )
         elif self.config.packing_mode != "none":
             packing_plan = build_packed_retrieval_plan(
@@ -152,6 +153,7 @@ class DyKVRuntime:
                 packing_plan,
                 target_device=target_device,
                 frame_tokens=frame_tokens,
+                retrieval_layout=self.config.retrieval_layout,
             )
             selected = list(packing_plan.selected_full_blocks)
         else:
@@ -237,6 +239,7 @@ class DyKVRuntime:
             "compression_mode": self.config.compression_mode,
             "retrieval_mode": self.config.retrieval_mode,
             "packing_mode": self.config.packing_mode,
+            "retrieval_layout": self.config.retrieval_layout,
             "retrieval_frames": self.config.retrieval_frames,
             "compression_keep_ratio": self.config.compression_keep_ratio,
             "branches": {branch: bank.summary() for branch, bank in self.banks.items()},

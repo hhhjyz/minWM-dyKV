@@ -182,6 +182,58 @@ class DyKVPackingTest(unittest.TestCase):
                     sum(payload["frame_token_lengths"]), payload["k"].shape[1]
                 )
 
+    def test_fixed_worldkv_slot_and_source_layouts_only_permute_segments(self):
+        bank = memory.DyKVBank(device="cpu")
+        poses = torch.stack([_yaw_w2c(0)] * 4).unsqueeze(0)
+        for block_index in range(4):
+            bank.archive_clean_block(
+                [_cache(block_index, tokens=48)],
+                frame_start=block_index * 4,
+                frame_count=4,
+                frame_tokens=12,
+                viewmats=poses,
+            )
+        plan = packing.build_fixed_worldkv_retrieval_plan(
+            bank,
+            (0, 1, 2, 3),
+            frame_tokens=12,
+            memory_frames=8,
+            sink_frames=4,
+            retrieval_frames=16,
+            keep_ratio=1.0 / 3.0,
+        )
+        source = packing.materialize_fixed_worldkv_retrieval(
+            bank,
+            plan,
+            target_device="cpu",
+            frame_tokens=12,
+            retrieval_layout="source_ordered",
+        )[0]
+        slot = packing.materialize_fixed_worldkv_retrieval(
+            bank,
+            plan,
+            target_device="cpu",
+            frame_tokens=12,
+            retrieval_layout="slot_packed",
+        )[0]
+
+        self.assertEqual(source["source_frame_ids"], sorted(source["source_frame_ids"]))
+        self.assertEqual(slot["virtual_slot_ids"], sorted(slot["virtual_slot_ids"]))
+        self.assertNotEqual(source["source_frame_ids"], slot["source_frame_ids"])
+        self.assertEqual(source["k"].shape, slot["k"].shape)
+        self.assertTrue(
+            torch.equal(
+                source["k"].flatten().sort().values,
+                slot["k"].flatten().sort().values,
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                source["v"].flatten().sort().values,
+                slot["v"].flatten().sort().values,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

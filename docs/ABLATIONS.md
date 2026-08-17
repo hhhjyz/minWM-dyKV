@@ -23,6 +23,7 @@ token 仍不得超过 8 个完整 latent。
 | A12 | `packed_chunks_latent` | A11 + 单 latent 尾部补齐 | 检查不能容纳完整 chunk 时的余量收益 |
 | A13 | `retr8_compression_r050` | 8 源帧、anchor + `r=1/2` | 相同覆盖下固定压缩的信息损失 |
 | A14 | `retr12_compression_r050` | 12 源帧、anchor + `r=1/2` | 相同压缩率下增加一个 chunk 的收益 |
+| A15-slot | `retr16_r033_slot_packed` | 与 A15 相同，按 virtual slot 排列 | 验证 slot/source 排列等价性 |
 | A15 | `retr16_compression_r033` | 16 源帧、anchor + `r=1/3` | 等 8 帧物理预算下覆盖两倍历史 |
 为兼容已有命令，未指定 case 的 dyKV 推理默认 A3。A0--A3、A1-W、A11--A15 均可由
 `run_dykv_cases.sh` 一键运行。

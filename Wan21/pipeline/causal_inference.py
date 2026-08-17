@@ -54,6 +54,9 @@ class CausalInferencePipeline(torch.nn.Module):
                     getattr(args, "dykv_compression_keep_ratio", 0.5)
                 ),
                 packing_mode=str(getattr(args, "dykv_packing_mode", "none")),
+                retrieval_layout=str(
+                    getattr(args, "dykv_retrieval_layout", "source_ordered")
+                ),
             ),
             chunk_frames=self.num_frame_per_block,
         )

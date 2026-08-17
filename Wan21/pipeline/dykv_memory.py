@@ -35,6 +35,7 @@ class DyKVConfig:
     compression_keep_ratio: float = 0.5
     compression_mode: str = "yaw_fov"
     packing_mode: str = "none"
+    retrieval_layout: str = "source_ordered"
     retrieval_mode: str = "fov"
     bank_device: str = "cpu"
     fov_samples: int = 8192
@@ -79,6 +80,12 @@ class DyKVConfig:
             raise ValueError(
                 "unsupported dyKV packing_mode"
             )
+        if self.retrieval_layout not in {
+            "slot_packed",
+            "source_ordered",
+            "flat_source_ordered",
+        }:
+            raise ValueError("unsupported dyKV retrieval_layout")
         if self.retrieval_frames <= 0 or self.retrieval_frames % chunk_frames:
             raise ValueError(
                 "dyKV retrieval_frames must be positive and chunk-aligned"
