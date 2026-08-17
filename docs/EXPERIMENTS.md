@@ -36,7 +36,6 @@ conda activate minwm-fa
 | B0 | `baseline` | `4+0+16` tri-region RoPE；固定 sink + rolling local 16 | 统一 RoPE 后的质量/速度基线 | 待运行 |
 | B1 | `retrieval_no_compression` | 不压缩的 dyKV | 单独分析检索收益 | 待运行 |
 | B1-W | `worldkv_pose_no_compression` | WorldKV 平均位姿检索，不压缩 | 与 B1 单变量比较检索评分 | 待运行 |
-| B2 | `fixed_novelty` | 固定内容压缩 dyKV | 与相机无关的压缩对照 | 待运行 |
 | B3 | `yaw_intrinsics` | 当前-query 几何裁剪（E0 兼容默认） | 评估旧动态路径的记忆、速度与质量 | 待运行 |
 | B4 | `packed_chunks` | 固定档位完整 chunk 扩容 | 评估更多完整历史覆盖 | 待运行 |
 | B5 | `packed_chunks_latent` | 完整 chunk + latent 尾部补齐 | 评估余量补齐收益 | 待运行 |
@@ -108,7 +107,6 @@ B1 正式质量指标已经完成，核心结果表仍保持“待运行”。
 | 待运行 | B0 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 基线 |
 | 待运行 | B1 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 仅检索 |
 | 待运行 | B1-W | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | WorldKV 位姿检索 |
-| 待运行 | B2 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 固定新颖性 |
 | 待运行 | B3 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | E0 兼容默认 |
 | 待运行 | B4 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 完整 chunk 扩容 |
 | 待运行 | B5 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | latent 尾部补齐 |

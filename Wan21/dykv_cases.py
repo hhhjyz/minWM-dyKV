@@ -67,12 +67,6 @@ DYKV_CASES = {
             retrieval_mode="worldkv_pose",
         ),
         DyKVCase(
-            "fixed_novelty",
-            True,
-            "fixed_novelty",
-            "内参 FOV 检索与固定锚点/新颖性压缩",
-        ),
-        DyKVCase(
             "yaw_intrinsics",
             True,
             "yaw_fov",

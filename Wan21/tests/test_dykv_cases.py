@@ -20,7 +20,6 @@ class DyKVCasesTest(unittest.TestCase):
                 "baseline",
                 "retrieval_no_compression",
                 "worldkv_pose_no_compression",
-                "fixed_novelty",
                 "yaw_intrinsics",
                 "packed_chunks",
                 "packed_chunks_latent",

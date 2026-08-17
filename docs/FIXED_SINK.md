@@ -54,7 +54,6 @@ dyKV cases:
 | `baseline` | 固定最初 4 帧 | retrieval 0 + rolling local 16；RoPE `4+0+16` |
 | `retrieval_no_compression` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `worldkv_pose_no_compression` | 固定最初 4 帧 | retrieval 8 + local 8 |
-| `fixed_novelty` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `yaw_intrinsics` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `packed_chunks` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `packed_chunks_latent` | 固定最初 4 帧 | retrieval 8 + local 8 |

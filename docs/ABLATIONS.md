@@ -18,7 +18,6 @@ token 仍不得超过 8 个完整 latent。
 | A0 | `baseline` | `4+0+16` tri-region RoPE；固定 sink + rolling local 16 | 无长期记忆的统一 RoPE 基线 |
 | A1 | `retrieval_no_compression` | 内参 FOV 检索，不压缩 retrieval KV | 检索本身带来的质量收益与最大开销 |
 | A1-W | `worldkv_pose_no_compression` | WorldKV 平均位姿检索，不压缩 retrieval KV | 与 A1 隔离检索评分公式的影响 |
-| A2 | `fixed_novelty` | 内参检索 + 固定锚点/新颖性压缩 | 与相机无关的内容压缩效果 |
 | A3 | `yaw_intrinsics` | 内参检索 + 当前-query yaw/FOV 裁剪 | E0 兼容默认的质量/效率折中 |
 | A11 | `packed_chunks` | 固定档位 + 完整 chunk 动态装箱 | 将压缩容量转换为更长历史覆盖 |
 | A12 | `packed_chunks_latent` | A11 + 单 latent 尾部补齐 | 检查不能容纳完整 chunk 时的余量收益 |
@@ -40,9 +39,9 @@ A1/A13/A14/A15 对应 minWM-back 的固定预算 A--D。A1 与 A15 物理 retrie
 
 需要同时做两种口径，避免动态方法因 token 数不同而被错误解释：
 
-1. **等历史覆盖**：A1/A2/A3 都先检索相同的 8 个原始 latent 帧，比较实际 attention
-   token、耗时和质量。这是主实验。
-2. **等 attention token**：根据 A3 的平均实际 token 数，为 A1/A2 构造相近计算量的
+1. **等历史覆盖**：A1/A3/A13 都先检索相同的 8 个原始 latent 帧，比较实际 attention
+   token、耗时和质量。这是主实验；A13 是统一 fixed-WorldKV 路径的固定 50% novelty 对照。
+2. **等 attention token**：根据 A3 的平均实际 token 数，为 A1/A13 构造相近计算量的
    离线对照。这是补充实验，用于分离“保留位置”与“token 数量”的影响。
 
 ## 3. 建议增加的机制消融

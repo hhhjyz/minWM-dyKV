@@ -35,14 +35,12 @@ compression_ratio = overlap_ratio
 keep_ratio        = 1 - overlap_ratio
 ```
 
-Wan 当前分辨率下每个 latent 有 `F=1560` 个 token。retrieval region 固定为 8 个虚拟时间
-槽，每槽至多 `F` 个 token：
+Wan 当前分辨率下每个 latent 有 `F=1560` 个 token。retrieval region 的总预算等价于
+8 个 latent；8 个 virtual slot 只提供可用的 temporal RoPE 标签：
 
 ```text
-slot_count       = 8
-slot_capacity    = F
 retrieval_budget = 8F = 12480
-virtual_slots    = 4,5,...,11
+virtual_slots    = 4,5,...,11（RoPE 时间标签，不是物理 token bin）
 ```
 
 比例不量化为 `1/4、1/2、3/4、1`，也不设置最低保留率。唯一不可避免的离散化是把浮点比例
@@ -133,7 +131,7 @@ for candidate in ranked_candidates:
     base = build_base_motion_plan(candidate)
     if base is invalid:
         continue
-    if packable(selected + [base], slots=8, capacity=F):
+    if sum(item.base_cost for item in selected) + base.base_cost <= 8 * F:
         selected.append(base)
 ```
 
@@ -141,31 +139,78 @@ for candidate in ranked_candidates:
 获得进入预算的机会；放不下一个候选时继续检查后续更小的候选。扫描结束后冻结
 `selected_block_ids`，A16、A17、A18 都不得再改变该集合。
 
-## 4. 任意 token 长度的 packing
+## 4. Flat retrieval buffer、源顺序与 RoPE
 
-每个完整 anchor 独占一个 virtual slot。非 anchor frame segment 长度可以是 `0..F` 中的
-任意整数；长度为 0 的 segment 不物化。一个非空 frame segment 只能映射到一个 virtual
-slot，不拆成多个时间位置；多个 segment 可以共享一个 slot，但每槽总长度不得超过 `F`。
+### 4.1 只约束总 token 预算
 
-第一版使用确定性 best-fit decreasing：
-
-1. 按源时间顺序为完整 anchor 保留独立 slot；
-2. 其余 segment 按 `token_count` 降序排列，以 source frame ID 作为 tie-break；
-3. 每个 segment 放入“放入后剩余空间最小”的可用 slot；
-4. 没有可用 slot 时创建新 slot；
-5. 使用超过 8 个 slot 即不可装入。
-
-连续长度下仅检查 `sum(tokens)<=8F` 不够，因为可能产生 bin fragmentation。正式 planner
-需要返回 `slot_token_loads`，并在 materialization 前再次断言：
+retrieval region 的“8 latent”首先是 attention K/V 的总长度预算，而不是必须切成 8 个
+独立物理数组的 bin。计划中的连续比例 case 采用 flat buffer：
 
 ```text
-0 <= slot_load <= F
-sum(slot_loads) == materialized_retrieval_tokens <= 8F
-virtual_slot_id in [4,11]
+sum(all retrieval segment lengths) <= 8F
 ```
 
-如果 best-fit decreasing 在真实日志中频繁留下“总容量足够但无法装入”的碎片，再将可装入
-检查替换为针对 8 个小 bin 的确定性回溯搜索；第一版不同时实现两套公开策略。
+不再要求某个 virtual slot 内的 token 总数小于等于 `F`，也不因 bin fragmentation 拒绝一个
+总长度能够放入的 chunk。`slot_token_loads` 仍然记录，但只是位置密度诊断，允许大于 `F`。
+
+这是对现有 packed/fixed-WorldKV case 的有意区别：现有实现维护 `slot_load<=F`，计划中的
+A16--A18 则把 virtual slot 只视为 temporal RoPE 标签。实现时只放宽新 payload 协议，不能
+悄然改变已有 case 的验证语义。
+
+### 4.2 可以按原始 KV 时间顺序重新排列
+
+当前 retrieval attention 使用 `causal=False`，K/V 只要执行完全相同的置换，且每个 token
+继续携带正确的 RoPE 和 metadata，attention 结果在数学上对 K/V 顺序置换不敏感。因此，
+所有候选 latent 的最终长度确定后，可以按原始 bank 中的 source frame 顺序重新排列并拼接：
+
+```text
+sort key = (source_frame_id, segment_kind, duplicate_ordinal)
+```
+
+每个唯一 frame segment 内的空间 token 索引恢复升序；duplicate copy 紧邻其源 frame，并用
+`duplicate_ordinal` 保持确定性。K、V、`source_frame_ids`、`frame_token_lengths` 和
+`virtual_slot_ids` 必须执行同一 segment permutation。
+
+按源顺序不是 attention 正确性的必要条件，但能保持日志可读、方便核对历史时间，并避免
+planner 的装箱顺序成为无意的实验变量。该结论依赖当前无 causal retrieval mask 的实现；
+如果以后根据 flat index 构造 retrieval mask，必须重新验证，不能继续假设可任意置换。
+
+### 4.3 非 anchor frame 可以跨越 flat offset 边界
+
+一个压缩 frame segment 在 flat K/V tensor 中可以从例如第 `1500` 个 retrieval token 开始，
+并延伸到第 `1700` 个 token。`1560` 的整数倍不是实际 tensor 边界，所以这种“跨 slot 拼接”
+在物理存储上没有问题。
+
+但是同一个 source latent 的 token 不应因为跨过 flat offset 的 `F` 倍数而被拆成两个不同的
+temporal RoPE slot。第一版保持：
+
+```text
+one source frame segment -> one virtual_slot_id
+```
+
+也就是说，允许物理 flat range 跨越所谓 slot 边界，但该 frame 的所有 K token 使用同一个
+`virtual_slot-source_frame` temporal shift。把同一 latent 的左半/右半映射到两个时间位置会让
+空间 token 获得不同时间语义，模型训练中没有对应结构，不采用。
+
+### 4.4 Reference virtual slot 映射
+
+A17 的最终唯一-token frame 长度作为三个 case 的 reference。将所有唯一 source frame 按
+原始时间排序，使用该 frame segment 在 flat reference buffer 中的 token 中点分配时间标签：
+
+```text
+prefix_i = source-order 中 frame i 之前的 reference token 数
+center_i = prefix_i + reference_length_i / 2
+slot_i   = 4 + min(7, floor(center_i / F))
+```
+
+同一 frame 的 A16 基础 token、A17 补回 token都沿用 `slot_i`。多个 frame 可以共享同一
+virtual slot，单个 slot 的统计负载也可以超过 `F`；硬约束只有 slot 位于 `[4,11]` 且总长度
+不超过 `8F`。
+
+A18 的 duplicate copy 为了与 A17 对齐 temporal density，继承 A17 被替代位置对应的目标
+slot，同时保留真实 source frame metadata。因此按 source frame 排序后 `virtual_slot_ids`
+不一定单调。计划实现需要删除 packed payload 当前“virtual slot 必须已排序”的非必要检查，
+但仍逐 segment 验证 slot 范围并执行 time-RoPE rebase。
 
 ## 5. A16：允许欠填
 
@@ -210,10 +255,9 @@ fill_target = min(8F, unique_raw_tokens)
 不用跨帧直接比较原始 cosine 数值，因为不同帧的 score 分布未必可校准。补回过程只能增加
 segment 长度，不能替换基础 novelty token。
 
-补回必须与 packing 联动。对当前最高优先级 chunk，先请求最多可用的 extra token；如果
-完整请求无法装入，在固定的成比例分配规则下二分查找最大可装 extra，再处理下一相关 chunk。
-最终目标是达到 `fill_target`；若因 slot fragmentation 仍未达到，记录
-`unique_backfill_unfilled_tokens`，不能转为重复 token。
+补回只受 flat 总预算约束，不需要 bin-packing 或二分可装入检查。依次处理相关 chunk，取
+`min(remaining_budget, chunk_omitted_tokens)`，再按上述比例分配给帧。最终应精确达到
+`fill_target`；如果实现没有达到，属于 planner 错误，而不是可接受的 slot fragmentation。
 
 需要断言同一 `(block_id, frame_offset, spatial_token_index)` 在 A17 payload 中最多出现一次。
 
@@ -224,7 +268,7 @@ segment 长度，不能替换基础 novelty token。
 - 相同的候选排名；
 - 相同的 selected chunk；
 - 相同的基础 keep ratio 和 base indices；
-- 与 A17 相同的最终总 token 数和每个 slot 的目标 load。
+- 与 A17 相同的最终总 token 数和每个 slot 的目标统计 load。
 
 它不使用任何 `omitted_indices`。额外位置只复制最高 query-relevance 已选 chunk 的基础源
 token；如果需要的重复数超过该 chunk 的基础 token 数，允许循环重复，因此一个源 token
@@ -276,8 +320,8 @@ fill layout：
 6. A18 使用相同目标 slot load，以重复源 token 替代 A17 的新增唯一 token。
 
 这样 A16/A17 的公共 token 具有相同 temporal slot，A17/A18 又具有相同最终 shape 和 slot
-负载。若 reference layout 构造失败，三个 case 都必须对该 event 使用相同的确定性失败策略，
-不能各自选择不同历史。
+统计负载。最终 payload 再按 source frame 重新排列；reference slot 标签随 segment 一起移动，
+不依赖 flat tensor 中的相邻关系。
 
 ## 9. 计划数据结构
 
@@ -328,9 +372,9 @@ MotionRetrievalPlan
 | --- | --- |
 | `Wan21/pipeline/dykv_motion_novelty.py` | 连续比例、novelty 排名、共同选择、unique backfill、duplicate plan |
 | `Wan21/pipeline/dykv_runtime.py` | 调用统一 planner；三个 case 共享候选排名；写事件诊断 |
-| `Wan21/pipeline/dykv_packing.py` | 提供或抽取任意整数 segment 的确定性 packing 原语，不包含 case 名称判断 |
+| `Wan21/pipeline/dykv_packing.py` | 现有 case 保持不变；计划 case 不复用其 per-slot bin 容量约束 |
 | `Wan21/dykv_cases.py` | 实现完成后注册 A16--A18；此前不注册 |
-| `Wan21/wan/modules/dykv_rope.py` | 原则上只复用逐 segment rebase；仅在 metadata 契约不足时修改 |
+| `Wan21/wan/modules/dykv_rope.py` | 为新 flat payload 保留总预算/slot 范围检查，允许非单调 slot metadata 与单槽统计超出 F |
 | `Wan21/scripts/inference/run_dykv_cases.sh` | 三个 case 可运行后再加入默认/显式清单 |
 | `Wan21/tests/test_dykv_motion_novelty.py` | 连续比例、唯一补回、重复与公平性回归 |
 
@@ -369,6 +413,7 @@ fill_target_tokens
 unused_tokens
 slot_token_loads
 virtual_slot_ids
+segments_source_ordered
 ```
 
 A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 token 唯一；A18 必须
@@ -393,11 +438,14 @@ A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 
 - 所有层使用同一计划长度和 layer-0 共享索引；
 - materialization 不修改 CPU bank。
 
-### 12.3 选择与 packing
+### 12.3 选择、flat 拼接与 RoPE
 
 - 三个 case 的 ranked/selected block ID 完全一致；
-- 任意整数 segment 不超过单 slot 和总预算；
+- 任意整数 segment 的总长度不超过 `8F`，不再以单 slot load 拒绝 payload；
 - 一个非空 source frame 在基础/unique plan 中只对应一个 slot；
+- 一个 frame segment 的 flat offset 可以跨过 `F` 的整数倍，但所有 token 共享同一 slot；
+- 最终唯一 segment 按 source frame ID 排序，K/V 与 metadata 使用相同置换；
+- 对已完成 RoPE 的 K/V 做一致 permutation 时，非 causal attention 输出保持一致；
 - A16/A17 公共 token 的 virtual slot 一致；
 - A17/A18 的最终总长度与 slot loads 一致。
 
@@ -425,7 +473,7 @@ A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 
 | Case | 历史选择 | token 位置选择 | 最终长度 | 主要作用 |
 | --- | --- | --- | --- | --- |
 | `retrieval_no_compression` | 当前 query FOV | 全部 | 固定 8F | 不压缩上界 |
-| `fixed_novelty` | 当前 query FOV | 固定 50% novelty | 欠填 | 固定比例内容压缩对照 |
+| `retr8_compression_r050` | 当前 query FOV | 固定 50% novelty | 5F | 同 8 源帧的固定比例内容压缩对照 |
 | `yaw_intrinsics` | 当前 query FOV | 几何列裁剪 | 欠填 | 精确几何位置对照 |
 | A16 `motion_novelty_unfilled` | 共同动态选择 | 连续比例 novelty | 欠填 | 新方法基础效果 |
 | A17 `motion_novelty_backfill` | 与 A16 相同 | 基础 + 唯一 token | 目标 8F | 真实额外信息的作用 |
@@ -465,7 +513,7 @@ A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 
 1. FOV overlap 对位移的连续比例依赖固定探针半径，不具备真实深度感知；
 2. 相机静止但物体运动时 `q=0`，几何无法发现内容 novelty；
 3. stored K 已包含位置相关变换，anchor-centroid cosine 不一定是纯内容相似度；
-4. 连续 segment 会产生 bin fragmentation，利用率不一定自动达到 100%；
+4. 放宽单 slot 容量后，同一 temporal RoPE 位置可能聚集超过 `F` 个 token，产生位置密度偏置；
 5. A18 重复 token 会系统性改变 softmax 权重，只能用于诊断；
 6. sequence parallel 下相似度统计必须保证各 rank 使用一致索引；
 7. 构造 A17 reference layout 会让 A16 planner 多做一次仅用于公平映射的规划，需要单独记录
@@ -478,7 +526,7 @@ A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 
 1. `Add continuous motion novelty planning`
    - 连续 FOV ratio、layer-0 novelty 完整排序、数据结构与单元测试；
 2. `Add unfilled motion novelty retrieval case`
-   - relevance-first 选择、任意长度 packing、A16、runtime/RoPE 测试；
+   - relevance-first 选择、flat 总预算、source-order 拼接、A16、runtime/RoPE 测试；
 3. `Add unique-token motion novelty backfill case`
    - A17 reference fill layout、unique backfill 与公平性日志；
 4. `Add repeated-token motion novelty diagnostic case`
