@@ -1,9 +1,8 @@
 # 连续 FOV 比例驱动的 WorldKV Novelty 压缩
 
-> 状态：设计完成；source-order materialization 与 flat payload/RoPE 基础协议已实现。
-> A16--A18 的 motion planner、补回/重复策略仍未实现，也尚未注册为可运行 case，没有
-> checkpoint 或 MBench 结果。本文中的计划 case 名称、日志字段和验收条件是后续实现契约，
-> 不能在完整实现前写入当前 case 注册表或默认 runner。
+> 状态：连续 FOV motion planner、source-order/flat payload 和 A16
+> `motion_novelty_unfilled` 已实现；`motion_novelty_slot_capped` 作为单槽限制消融也已注册。
+> A17 backfill 与 A18 duplicate 尚未实现注册，目前没有 MBench 结果。
 
 ## 1. 目标
 
@@ -484,6 +483,7 @@ A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 
 | `retr8_compression_r050` | 当前 query FOV | 固定 50% novelty | 5F | 同 8 源帧的固定比例内容压缩对照 |
 | `yaw_intrinsics` | 当前 query FOV | 几何列裁剪 | 欠填 | 精确几何位置对照 |
 | `packed_chunks_latent` | 当前 query FOV | 量化几何列裁剪 | 不超过 8F | 可变 segment/source-order 压力对照，不作主质量基线 |
+| `motion_novelty_slot_capped` | 共同动态选择 | 连续比例 novelty + 单槽装箱 | 欠填 | flat 布局的 fragmentation 消融 |
 | A16 `motion_novelty_unfilled` | 共同动态选择 | 连续比例 novelty | 欠填 | 新方法基础效果 |
 | A17 `motion_novelty_backfill` | 与 A16 相同 | 基础 + 唯一 token | 目标 8F | 真实额外信息的作用 |
 | A18 `motion_novelty_duplicate` | 与 A16 相同 | 基础 + 重复 token | 与 A17 相同 | 重加权/长度诊断 |
@@ -554,9 +554,9 @@ flat 跨边界会放宽单槽容量，可能改变 temporal position density，�
 
 0. `Support source-ordered flat retrieval payloads`（已完成）
    - 现有 packed/fixed payload 按源 KV 顺序物化；flat 协议允许 segment 跨物理 `F` 边界；
-1. `Add continuous motion novelty planning`
+1. `Add continuous motion novelty planning`（已完成）
    - 连续 FOV ratio、layer-0 novelty 完整排序、数据结构与单元测试；
-2. `Add unfilled motion novelty retrieval case`
+2. `Add unfilled motion novelty retrieval case`（已完成）
    - relevance-first 选择、flat 总预算、source-order 拼接、A16、runtime/RoPE 测试；
 3. `Add unique-token motion novelty backfill case`
    - A17 reference fill layout、unique backfill 与公平性日志；

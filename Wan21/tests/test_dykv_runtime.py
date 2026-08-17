@@ -27,6 +27,7 @@ def _load(name):
 _load("dykv_fov")
 memory = _load("dykv_memory")
 _load("dykv_packing")
+_load("dykv_motion_novelty")
 _load("dykv_worldkv")
 runtime_module = _load("dykv_runtime")
 
@@ -286,6 +287,47 @@ class DyKVRuntimeTest(unittest.TestCase):
         self.assertEqual(
             runtime.summary()["events"][0]["retrieval_layout"], "slot_packed"
         )
+
+    def test_motion_novelty_runtime_emits_flat_source_ordered_diagnostics(self):
+        config = memory.DyKVConfig(
+            enabled=True,
+            fov_samples=2048,
+            retrieval_frames=16,
+            compression_mode="motion_novelty",
+            packing_mode="motion_novelty_flat",
+            retrieval_layout="flat_source_ordered",
+        )
+        runtime = runtime_module.DyKVRuntime(config, chunk_frames=4)
+        for start in range(0, 36, 4):
+            poses = torch.stack(
+                [_yaw_w2c(value) for value in (0.0, 10.0, 20.0, 30.0)]
+            ).unsqueeze(0)
+            runtime.archive(
+                "main",
+                [_cache(start, tokens=48)],
+                frame_start=start,
+                frame_count=4,
+                frame_tokens=12,
+                viewmats=poses,
+                Ks=_intrinsics(),
+            )
+        current = torch.stack([_yaw_w2c(0.0)] * 4).unsqueeze(0)
+        payload = runtime.retrieve(
+            "main",
+            current_frame=36,
+            current_viewmats=current,
+            current_Ks=_intrinsics(),
+            frame_tokens=12,
+            target_device="cpu",
+        )[0]
+        event = runtime.summary()["events"][0]
+
+        self.assertEqual(payload["retrieval_layout"], "flat_source_ordered")
+        self.assertEqual(payload["source_frame_ids"], sorted(payload["source_frame_ids"]))
+        self.assertEqual(event["retrieval_layout"], "flat_source_ordered")
+        self.assertTrue(event["segments_source_ordered"])
+        self.assertEqual(event["base_tokens_total"], payload["k"].shape[1])
+        self.assertEqual(event["unique_backfill_tokens_total"], 0)
 
 if __name__ == "__main__":
     unittest.main()

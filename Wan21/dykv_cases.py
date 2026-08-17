@@ -124,6 +124,24 @@ DYKV_CASES = {
             retrieval_frames=16,
             compression_keep_ratio=1.0 / 3.0,
         ),
+        DyKVCase(
+            "motion_novelty_slot_capped",
+            True,
+            "motion_novelty",
+            "连续 FOV 比例 + novelty，按源顺序并保留单槽容量限制",
+            packing_mode="motion_novelty_slot_capped",
+            retrieval_frames=16,
+            retrieval_layout="source_ordered",
+        ),
+        DyKVCase(
+            "motion_novelty_unfilled",
+            True,
+            "motion_novelty",
+            "连续 FOV 比例 + novelty，flat 总预算且允许欠填",
+            packing_mode="motion_novelty_flat",
+            retrieval_frames=16,
+            retrieval_layout="flat_source_ordered",
+        ),
     )
 }
 

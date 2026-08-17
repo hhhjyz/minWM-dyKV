@@ -5,10 +5,10 @@
 所有可直接运行的对照都注册在 `Wan21/dykv_cases.py`。公开接口只增加一个枚举参数
 `--dykv-case`，每个 case 一次性确定压缩方式、检索 FOV 来源和裁剪 FOV 来源，不再暴露
 彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink，并使用映射到
-`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，九个 dyKV case
+`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，十一个 dyKV case
 使用连续的 `4+8+8`。
 
-## 2. 当前十个 Case
+## 2. 当前十二个 Case
 
 | Case | Sink | dyKV | 检索方法 | 检索时压缩 | 裁剪 FOV | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -22,6 +22,8 @@
 | `retr12_compression_r050` | 固定 4 | 开启 | 相机 `K` | 3 chunk，anchor + `r=1/2` | — | minWM-back C：12 源帧压到 7.5 帧容量 |
 | `retr16_r033_slot_packed` | 固定 4 | 开启 | 相机 `K` | 与 D 相同，按 virtual slot 拼接 | — | D 的旧 slot-order 排列诊断 |
 | `retr16_compression_r033` | 固定 4 | 开启 | 相机 `K` | 4 chunk，anchor + `r=1/3` | — | minWM-back D：16 源帧压到 8 帧容量 |
+| `motion_novelty_slot_capped` | 固定 4 | 开启 | 相机 `K` | 连续 FOV token 数 + novelty，单槽受限 | — | flat 方法的 capped packing 消融 |
+| `motion_novelty_unfilled` | 固定 4 | 开启 | 相机 `K` | 连续 FOV token 数 + novelty，flat 欠填 | — | A16 动态压缩基础方法 |
 
 `baseline` 必须不带 `--dykv`；其余 case 通过 `--dykv --dykv-case NAME` 启用。除明确用于
 消融的 `worldkv_pose_no_compression` 外，现有检索和几何裁剪 case 都使用归一化相机内参
@@ -40,14 +42,15 @@ virtual slot 和 `8F` 预算完全一致，只分别按 virtual slot 与 source 
 
 ### 计划中、尚不可运行的连续比例 Case
 
-下一阶段计划增加 `motion_novelty_unfilled`、`motion_novelty_backfill` 和
-`motion_novelty_duplicate`。三者都使用 chunk 内 anchor-relative 连续 FOV 新增比例决定
+`motion_novelty_unfilled` 及其 `motion_novelty_slot_capped` 消融已经可运行。下一阶段计划
+增加 `motion_novelty_backfill` 和 `motion_novelty_duplicate`。它们都使用 chunk 内
+anchor-relative 连续 FOV 新增比例决定
 每帧 token 数，再用 WorldKV novelty 决定具体 token；区别是剩余预算分别保持空闲、补回
 尚未选择的唯一 token、或重复最高 query-relevance chunk 的已选源 token。完整实现契约见
 [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
 
-这三个名称当前没有注册到 `Wan21/dykv_cases.py`，也不能传给 runner。只有实现、单元测试和
-runtime 冒烟完成后，才能移入上面的“当前 Case”表和运行命令。
+backfill 与 duplicate 当前没有注册到 `Wan21/dykv_cases.py`，也不能传给 runner。只有实现、
+单元测试和 runtime 冒烟完成后，才能移入上面的“当前 Case”表和运行命令。
 
 可随时列出注册表：
 

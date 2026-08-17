@@ -27,6 +27,8 @@ class DyKVCasesTest(unittest.TestCase):
                 "retr12_compression_r050",
                 "retr16_r033_slot_packed",
                 "retr16_compression_r033",
+                "motion_novelty_slot_capped",
+                "motion_novelty_unfilled",
             ),
         )
 
@@ -100,6 +102,16 @@ class DyKVCasesTest(unittest.TestCase):
     def test_baseline_is_the_only_disabled_case(self):
         disabled = [case.name for case in cases.DYKV_CASES.values() if not case.enabled]
         self.assertEqual(disabled, ["baseline"])
+
+    def test_motion_novelty_layout_ablation_is_registered(self):
+        capped = cases.get_dykv_case("motion_novelty_slot_capped")
+        flat = cases.get_dykv_case("motion_novelty_unfilled")
+        self.assertEqual(capped.compression_mode, "motion_novelty")
+        self.assertEqual(flat.compression_mode, "motion_novelty")
+        self.assertEqual(capped.retrieval_layout, "source_ordered")
+        self.assertEqual(flat.retrieval_layout, "flat_source_ordered")
+        self.assertEqual(capped.retrieval_mode, flat.retrieval_mode)
+        self.assertEqual(capped.retrieval_frames, flat.retrieval_frames)
 
     def test_every_case_uses_the_same_fixed_four_frame_sink(self):
         for preset in cases.DYKV_CASES.values():

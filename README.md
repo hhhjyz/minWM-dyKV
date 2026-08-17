@@ -4,7 +4,7 @@
 > `sink | retrieval | local` 三区域 KV、检索时压缩、有界三区域 RoPE、基于相机
 > FOV 的检索，以及 MBench 用例支持。设计说明与实验记录见 [`docs/`](docs/README.md)。
 
-统一实验入口为 `Wan21/scripts/inference/run_dykv_cases.sh`；当前十个 case、普通 prompt 与
+统一实验入口为 `Wan21/scripts/inference/run_dykv_cases.sh`；当前十二个 case、普通 prompt 与
 MBench 一键运行方式见 [`docs/CASES_AND_RUNNER.md`](docs/CASES_AND_RUNNER.md)。
 相同 `SEED` 下，每个 prompt index 使用独立且跨 case 一致的初始噪声，便于公平视频对比。
 未指定 case 时 `--dykv` 为兼容已有实验仍选择 `yaw_intrinsics`。

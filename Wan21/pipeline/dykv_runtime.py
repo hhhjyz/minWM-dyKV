@@ -8,6 +8,10 @@ import torch
 
 from .dykv_fov import deterministic_sphere_points, select_fov_blocks
 from .dykv_memory import DyKVBank, DyKVConfig
+from .dykv_motion_novelty import (
+    build_motion_retrieval_plan,
+    materialize_motion_retrieval,
+)
 from .dykv_packing import (
     build_fixed_worldkv_retrieval_plan,
     build_packed_retrieval_plan,
@@ -117,7 +121,32 @@ class DyKVRuntime:
                 radius=self.config.fov_radius,
             )
         packing_plan = None
-        if self.config.packing_mode == "fixed_worldkv":
+        if self.config.packing_mode in {
+            "motion_novelty_slot_capped",
+            "motion_novelty_flat",
+        }:
+            packing_plan = build_motion_retrieval_plan(
+                bank,
+                ranked_candidates,
+                distances,
+                probe_points=self.probe_points,
+                radius=self.config.fov_radius,
+                frame_tokens=frame_tokens,
+                memory_frames=self.config.memory_frames,
+                sink_frames=self.config.sink_frames,
+                slot_capped=(
+                    self.config.packing_mode == "motion_novelty_slot_capped"
+                ),
+                candidate_block_indices=candidates,
+            )
+            payloads = materialize_motion_retrieval(
+                bank,
+                packing_plan,
+                target_device=target_device,
+                frame_tokens=frame_tokens,
+            )
+            selected = list(packing_plan.selected_block_indices)
+        elif self.config.packing_mode == "fixed_worldkv":
             packing_plan = build_fixed_worldkv_retrieval_plan(
                 bank,
                 selected,
@@ -218,6 +247,55 @@ class DyKVRuntime:
                 "fixed_keep_ratio": diagnostics.get("fixed_keep_ratio"),
                 "fixed_retrieval_frames": diagnostics.get(
                     "fixed_retrieval_frames"
+                ),
+                "retrieval_similarities": diagnostics.get(
+                    "retrieval_similarities", []
+                ),
+                "motion_fov_overlaps": diagnostics.get("motion_fov_overlaps", []),
+                "motion_keep_ratios": diagnostics.get("motion_keep_ratios", []),
+                "relative_rotation_degrees": diagnostics.get(
+                    "relative_rotation_degrees", []
+                ),
+                "relative_translation_distances": diagnostics.get(
+                    "relative_translation_distances", []
+                ),
+                "motion_geometry_invalid_block_ids": diagnostics.get(
+                    "motion_geometry_invalid_block_ids", []
+                ),
+                "base_tokens_per_frame": diagnostics.get(
+                    "base_tokens_per_frame", []
+                ),
+                "base_tokens_per_chunk": diagnostics.get(
+                    "base_tokens_per_chunk", []
+                ),
+                "base_tokens_total": diagnostics.get("base_tokens_total", 0),
+                "unique_backfill_tokens_per_frame": diagnostics.get(
+                    "unique_backfill_tokens_per_frame", []
+                ),
+                "unique_backfill_tokens_total": diagnostics.get(
+                    "unique_backfill_tokens_total", 0
+                ),
+                "duplicate_tokens_per_frame": diagnostics.get(
+                    "duplicate_tokens_per_frame", []
+                ),
+                "duplicate_tokens_total": diagnostics.get(
+                    "duplicate_tokens_total", 0
+                ),
+                "duplicate_source_block_ids": diagnostics.get(
+                    "duplicate_source_block_ids", []
+                ),
+                "max_source_token_multiplicity": diagnostics.get(
+                    "max_source_token_multiplicity", 0
+                ),
+                "actual_tokens_per_frame": diagnostics.get(
+                    "actual_tokens_per_frame", []
+                ),
+                "final_tokens_total": diagnostics.get("final_tokens_total", 0),
+                "fill_target_tokens": diagnostics.get("fill_target_tokens", 0),
+                "unused_tokens": diagnostics.get("unused_tokens", 0),
+                "slot_token_loads": diagnostics.get("slot_token_loads", []),
+                "segments_source_ordered": diagnostics.get(
+                    "segments_source_ordered", False
                 ),
                 "packing_candidate_block_ids": [
                     bank.blocks[index].block_id

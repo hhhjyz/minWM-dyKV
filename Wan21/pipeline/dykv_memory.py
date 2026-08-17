@@ -65,9 +65,14 @@ class DyKVConfig:
             )
         if not 0.0 < self.compression_keep_ratio <= 1.0:
             raise ValueError("dyKV compression_keep_ratio must be in (0, 1]")
-        if self.compression_mode not in {"none", "fixed_novelty", "yaw_fov"}:
+        if self.compression_mode not in {
+            "none",
+            "fixed_novelty",
+            "yaw_fov",
+            "motion_novelty",
+        }:
             raise ValueError(
-                "dyKV compression_mode must be none, fixed_novelty, or yaw_fov"
+                "unsupported dyKV compression_mode"
             )
         if self.retrieval_mode not in {"fov", "worldkv_pose"}:
             raise ValueError("dyKV retrieval_mode must be fov or worldkv_pose")
@@ -76,6 +81,8 @@ class DyKVConfig:
             "whole_chunks",
             "whole_chunks_and_latents",
             "fixed_worldkv",
+            "motion_novelty_slot_capped",
+            "motion_novelty_flat",
         }:
             raise ValueError(
                 "unsupported dyKV packing_mode"

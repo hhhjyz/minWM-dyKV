@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/../../.."; pwd)"
 cd "$PROJECT_ROOT"
 
-CASES="${CASES:-baseline,retrieval_no_compression,worldkv_pose_no_compression,yaw_intrinsics,packed_chunks,packed_chunks_latent,retr8_compression_r050,retr12_compression_r050,retr16_r033_slot_packed,retr16_compression_r033}"
+CASES="${CASES:-baseline,retrieval_no_compression,worldkv_pose_no_compression,yaw_intrinsics,packed_chunks,packed_chunks_latent,retr8_compression_r050,retr12_compression_r050,retr16_r033_slot_packed,retr16_compression_r033,motion_novelty_slot_capped,motion_novelty_unfilled}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-output/dykv_cases}"
 MODEL_PREFIX="${MODEL_PREFIX:-minwm_dykv}"
 SEED="${SEED:-0}"
