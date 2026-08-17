@@ -27,6 +27,8 @@ token 仍不得超过 8 个完整 latent。
 | A15 | `retr16_compression_r033` | 16 源帧、anchor + `r=1/3` | 等 8 帧物理预算下覆盖两倍历史 |
 | A16-capped | `motion_novelty_slot_capped` | 连续 FOV 比例 + novelty，单槽容量受限 | 隔离 bin fragmentation 的影响 |
 | A16 | `motion_novelty_unfilled` | 连续 FOV 比例 + novelty，flat 总预算 | 动态压缩基础效果 |
+| A17 | `motion_novelty_backfill` | A16 基础计划 + 唯一 token 回填 | 区分真实额外信息与欠填影响 |
+| A18 | `motion_novelty_duplicate` | A16 基础计划 + 最高相关 chunk token 重复 | 诊断满长度/attention 重加权影响 |
 为兼容已有命令，未指定 case 的 dyKV 推理默认 A3。A0--A3、A1-W、A11--A15 均可由
 `run_dykv_cases.sh` 一键运行。
 
@@ -66,9 +68,9 @@ A1-W 是另一种不使用 FOV 的 WorldKV 外参位姿检索，不属于固定�
 
 ### 连续比例与剩余预算消融
 
-以下三组已经完成设计，但尚未实现或注册：
+以下三组已经实现并注册，可直接用统一 runner 比较：
 
-| 编号 | 计划 Case | 固定变量 | 唯一变量 | 目的 |
+| 编号 | Case | 固定变量 | 唯一变量 | 目的 |
 | --- | --- | --- | --- | --- |
 | A16 | `motion_novelty_unfilled` | query FOV 排名、连续 keep ratio、基础 novelty token | 剩余空间保持空闲 | 测量连续比例基础效果 |
 | A17 | `motion_novelty_backfill` | 与 A16 相同的候选、selected chunk、基础 token 和 slot | 补回未选择的唯一 token | 判断真实额外信息是否弥补欠填损失 |
@@ -108,7 +110,7 @@ retrieval 帧预算相同。
 
 | 轨迹 | 预期行为 | 验证点 |
 | --- | --- | --- |
-| 0° 静止 | A3 保留全部；计划中的 A16--A18 得到连续 `q=0`，仅保留 chunk anchor | 验证无隐式最低比例，并观察动态物体风险 |
+| 0° 静止 | A3 保留全部；A16--A18 得到连续 `q=0`，基础计划仅保留 chunk anchor | 验证无隐式最低比例，并观察动态物体风险 |
 | 半个实际 FOV | 约保留一半水平角域 | 左右 mask 应互为镜像 |
 | 一个实际 FOV | 无水平交集 | 历史块应从载荷中移除 |
 | 360° | 回到等价朝向 | 角度回绕后应保留全部列 |

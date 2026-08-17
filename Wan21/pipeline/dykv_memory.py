@@ -83,6 +83,8 @@ class DyKVConfig:
             "fixed_worldkv",
             "motion_novelty_slot_capped",
             "motion_novelty_flat",
+            "motion_novelty_backfill",
+            "motion_novelty_duplicate",
         }:
             raise ValueError(
                 "unsupported dyKV packing_mode"

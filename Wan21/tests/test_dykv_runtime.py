@@ -329,5 +329,60 @@ class DyKVRuntimeTest(unittest.TestCase):
         self.assertEqual(event["base_tokens_total"], payload["k"].shape[1])
         self.assertEqual(event["unique_backfill_tokens_total"], 0)
 
+    def test_motion_novelty_fill_modes_share_selection_and_reference_shape(self):
+        outputs = {}
+        for packing_mode in (
+            "motion_novelty_backfill",
+            "motion_novelty_duplicate",
+        ):
+            with self.subTest(packing_mode=packing_mode):
+                config = memory.DyKVConfig(
+                    enabled=True,
+                    fov_samples=2048,
+                    retrieval_frames=16,
+                    compression_mode="motion_novelty",
+                    packing_mode=packing_mode,
+                    retrieval_layout="flat_source_ordered",
+                )
+                runtime = runtime_module.DyKVRuntime(config, chunk_frames=4)
+                for start in range(0, 36, 4):
+                    poses = torch.stack(
+                        [_yaw_w2c(0.0)] * 4
+                    ).unsqueeze(0)
+                    runtime.archive(
+                        "main",
+                        [_cache(start, tokens=48)],
+                        frame_start=start,
+                        frame_count=4,
+                        frame_tokens=12,
+                        viewmats=poses,
+                        Ks=_intrinsics(),
+                    )
+                current = torch.stack([_yaw_w2c(0.0)] * 4).unsqueeze(0)
+                payload = runtime.retrieve(
+                    "main",
+                    current_frame=36,
+                    current_viewmats=current,
+                    current_Ks=_intrinsics(),
+                    frame_tokens=12,
+                    target_device="cpu",
+                )[0]
+                event = runtime.summary()["events"][0]
+                self.assertEqual(payload["retrieval_layout"], "flat_source_ordered")
+                self.assertEqual(
+                    event["final_tokens_total"], event["fill_target_tokens"]
+                )
+                outputs[packing_mode] = event
+
+        backfill = outputs["motion_novelty_backfill"]
+        duplicate = outputs["motion_novelty_duplicate"]
+        self.assertEqual(backfill["selected_block_ids"], duplicate["selected_block_ids"])
+        self.assertEqual(backfill["base_tokens_total"], duplicate["base_tokens_total"])
+        self.assertEqual(backfill["slot_token_loads"], duplicate["slot_token_loads"])
+        self.assertGreater(backfill["unique_backfill_tokens_total"], 0)
+        self.assertEqual(backfill["duplicate_tokens_total"], 0)
+        self.assertEqual(duplicate["unique_backfill_tokens_total"], 0)
+        self.assertGreater(duplicate["duplicate_tokens_total"], 0)
+
 if __name__ == "__main__":
     unittest.main()

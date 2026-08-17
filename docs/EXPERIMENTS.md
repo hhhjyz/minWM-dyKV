@@ -42,17 +42,16 @@ conda activate minwm-fa
 | B6 | `retr8_compression_r050` | 8 源帧、固定 `r=1/2` | 固定覆盖下的压缩损失 | 待运行 |
 | B7 | `retr12_compression_r050` | 12 源帧、固定 `r=1/2` | 同比例下扩充 chunk 的收益 | 待运行 |
 | B8 | `retr16_compression_r033` | 16 源帧、固定 `r=1/3` | 与 8 帧不压缩严格等 token 对比 | 待运行 |
+| B8-slot | `retr16_r033_slot_packed` | B8 相同 payload，按 virtual slot 排列 | source/slot 排列诊断 | 2 个典型样本已生成，未评分 |
+| B9-capped | `motion_novelty_slot_capped` | 连续比例 + novelty，单槽受限 | flat packing 的 fragmentation 消融 | 2 个典型样本已生成，未评分 |
+| B9 | `motion_novelty_unfilled` | 连续 FOV keep ratio + WorldKV novelty，允许欠填 | 验证连续比例基础方法 | 2 个典型样本已生成，未评分 |
+| B10 | `motion_novelty_backfill` | B9 相同基础计划 + 补回未选唯一 token | 隔离真实额外信息与欠填影响 | 已实现、待生成 |
+| B11 | `motion_novelty_duplicate` | B9 相同基础计划 + 重复最高相关 chunk 源 token | 隔离满长度/attention 重加权影响 | 已实现、待生成 |
 
-### 已设计、尚未实现的连续比例对照
+### 连续比例对照约束
 
-| 运行编号 | 计划 Case | 方法 | 目的 | 状态 |
-| --- | --- | --- | --- | --- |
-| B9 | `motion_novelty_unfilled` | 连续 FOV keep ratio + WorldKV novelty，允许欠填 | 验证连续比例基础方法 | 设计完成，待实现 |
-| B10 | `motion_novelty_backfill` | B9 相同基础计划 + 补回未选唯一 token | 隔离真实额外信息与欠填影响 | 设计完成，待实现 |
-| B11 | `motion_novelty_duplicate` | B9 相同基础计划 + 重复最高相关 chunk 源 token | 隔离满长度/attention 重加权影响 | 设计完成，待实现 |
-
-B9--B11 当前不能由 runner 执行。三者必须共享候选排名、selected chunk、基础比例与基础
-token；B10/B11 还必须对齐最终 token 数和每槽 load。设计、日志和判读契约见
+B9--B11 均可由 runner 执行。三者共享候选排名、selected chunk、基础比例与基础 token；
+B10/B11 还对齐最终 token 数和每槽 load。设计、日志和判读契约见
 [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
 
 以上 case 均可由 `Wan21/scripts/inference/run_dykv_cases.sh` 统一运行。固定 FOV 与混合
@@ -113,11 +112,26 @@ B1 正式质量指标已经完成，核心结果表仍保持“待运行”。
 | 待运行 | B6 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 8 帧固定 1/2 |
 | 待运行 | B7 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 12 帧固定 1/2 |
 | 待运行 | B8 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 16 帧固定 1/3 |
-| 待实现 | B9 | — | — | — | — | — | — | 连续比例，允许欠填 |
-| 待实现 | B10 | — | — | — | — | — | — | 补回唯一 token |
-| 待实现 | B11 | — | — | — | — | — | — | 重复 token 诊断 |
+| `308fa58` | B8-slot | 2 | 0 | 100 latent | 未评分 | 未记录 | 未记录 | A100 80GB；布局诊断 |
+| `1386370` | B9-capped | 2 | 0 | 100 latent | 未评分 | 未记录 | 未记录 | A100 80GB；单槽限制 |
+| `1386370` | B9 | 2 | 0 | 100 latent | 未评分 | 未记录 | 未记录 | A100 80GB；flat 欠填 |
+| 待运行 | B10 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 补回唯一 token |
+| 待运行 | B11 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 重复 token 诊断 |
 
 禁止用估计值替换“待运行”，表中只记录实测结果。
+
+### 2026-08-17：两样本布局消融冒烟
+
+在 GPU 2（A100 80GB）上使用同一 MBench typical-2 清单、seed 0 和 100 latent 运行
+B8-slot、B9-capped 与 B9。每个 case 均生成 2 个 MP4 和 2 条 manifest；三个 case 的对应
+prompt 初始噪声指纹一致。输出位于
+`output/mbench_typical_2_compare_seed0/{case}`，MBench package 分别为
+`minwm_typical2_compare_{case}_seed0`。
+
+40 组对应 retrieval event 中，B9-capped 与 B9 的 selected blocks、基础 token 总数和连续
+比例全部一致；40/40 的 slot load 不同。B9 的单槽最大 load 达 1875 token，确实跨越
+`F=1560` 的 virtual-slot 边界；capped 最大为 1560。三组尚未运行 MBench 质量评分，因此该
+记录只证明 runner、真实 checkpoint 路径和布局单变量成立，不构成质量结论。
 
 ## 实现冒烟测试
 

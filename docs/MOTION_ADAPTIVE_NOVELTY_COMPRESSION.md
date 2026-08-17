@@ -1,8 +1,8 @@
 # 连续 FOV 比例驱动的 WorldKV Novelty 压缩
 
-> 状态：连续 FOV motion planner、source-order/flat payload 和 A16
-> `motion_novelty_unfilled` 已实现；`motion_novelty_slot_capped` 作为单槽限制消融也已注册。
-> A17 backfill 与 A18 duplicate 尚未实现注册，目前没有 MBench 结果。
+> 状态：连续 FOV motion planner、source-order/flat payload、单槽限制消融，以及 A16--A18
+> 均已实现并注册。capped/A16 已完成两个 MBench 典型样本的真实 checkpoint 生成但尚未评分；
+> A17/A18 尚未生成 MBench 结果。
 
 ## 1. 目标
 
@@ -14,9 +14,9 @@ WorldKV 的 anchor/novelty 相似度只回答具体保留哪些 token。几何�
 新增比例，并据此得到不同的连续保留率。被逐出的 CPU KV bank 始终无损；比例计算、token
 选择、packing、补回或重复都只发生在 retrieval materialization 阶段。
 
-方案规划三个 case：
+方案实现三个主 case：
 
-| 编号 | 计划 case | 剩余预算处理 | 研究问题 |
+| 编号 | Case | 剩余预算处理 | 研究问题 |
 | --- | --- | --- | --- |
 | A16 | `motion_novelty_unfilled` | 没有完整压缩 chunk 可加入后允许欠填 | 连续几何比例与 novelty 选择本身是否有效 |
 | A17 | `motion_novelty_backfill` | 补回已选 chunk 中尚未选择的唯一 token | 欠填造成的质量损失能否由真实额外信息恢复 |
@@ -503,10 +503,15 @@ slot-order 与新 source-order，要求输出在数值容差内一致。若不�
 排列错误，而不是方法收益。
 
 flat 跨边界会放宽单槽容量，可能改变 temporal position density，因此它需要真正的 planner
-消融：后续对同一 motion base plan 比较 `slot_load<=F` 的 capped packing 与
+消融：对同一 motion base plan 比较 `slot_load<=F` 的 capped packing 与
 `flat_source_ordered`，并保持总 token、selected blocks、token indices 和每段 virtual slot
 分配尽量一致。其外部主基线仍是 `retr16_compression_r033`；不能用已经删除的
 `fixed_novelty`，也不能只与 `packed_chunks_latent` 比较。
+
+该布局消融已在 2 个 MBench typical 样本、每个 20 次 retrieval event 上完成真实 checkpoint
+冒烟：capped 与 flat 的 selected blocks、基础 token 数和比例 40/40 一致，slot load 40/40
+不同；flat 单槽最大为 1875，capped 最大为 1560。视频尚未评分，因此这里只确认单变量与
+实现路径，不宣称质量优劣。详细运行记录见 [`EXPERIMENTS.md`](EXPERIMENTS.md)。
 
 ### 13.3 公平性要求
 
@@ -558,10 +563,9 @@ flat 跨边界会放宽单槽容量，可能改变 temporal position density，�
    - 连续 FOV ratio、layer-0 novelty 完整排序、数据结构与单元测试；
 2. `Add unfilled motion novelty retrieval case`（已完成）
    - relevance-first 选择、flat 总预算、source-order 拼接、A16、runtime/RoPE 测试；
-3. `Add unique-token motion novelty backfill case`
+3. `Add unique-token motion novelty backfill case`（已完成）
    - A17 reference fill layout、unique backfill 与公平性日志；
-4. `Add repeated-token motion novelty diagnostic case`
+4. `Add repeated-token motion novelty diagnostic case`（已完成）
    - A18 重复池、目标 slot 对齐、multiplicity 测试；
-5. `Document motion novelty experiments`
-   - runner、case 文档、实验台账与正式命令；只有前三个 case 真正注册后才能把状态改为
-     “可运行”。
+5. `Document motion novelty experiments`（已完成）
+   - runner、case 文档、实验台账与正式命令。

@@ -48,10 +48,10 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - [`RETRIEVAL_NO_COMPRESSION_DIAGNOSIS.md`](RETRIEVAL_NO_COMPRESSION_DIAGNOSIS.md)：典型样本最后六个 chunk 的无压缩检索日志、预算/RoPE 检查及低于 baseline 的策略原因分析；
 - [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)：基于相机视场的动态空间 token 裁剪、MBench 适合性与实施计划；
 - [`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md)：压缩后扩充历史 chunk、latent 尾部补齐与可变载荷 RoPE 方案；
-- [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)：连续 FOV 保留比例、WorldKV novelty 选择，以及 capped、欠填、唯一 token 补回和重复 token 消融；capped 与欠填 case 已实现注册；
+- [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)：连续 FOV 保留比例、WorldKV novelty 选择，以及 capped、欠填、唯一 token 补回和重复 token 消融；四个 case 均已实现注册；
 - [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)：minWM-back 固定压缩率与 chunk 数 A--D 对照；
 - [`ABLATIONS.md`](ABLATIONS.md)：动态压缩、检索与几何设计的消融实验矩阵；
-- [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)：十二个可运行 case 与普通/MBench 统一 runner；
+- [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)：十四个可运行 case 与普通/MBench 统一 runner；
 - [`MBENCH.md`](MBENCH.md)：用例转换、生成与评测流程；
 - [`MBENCH_TYPICAL_SAMPLES.md`](MBENCH_TYPICAL_SAMPLES.md)：四/八个典型样本及小规模对比命令；
 - [`EXPERIMENTS.md`](EXPERIMENTS.md)：实验矩阵、运行命令、环境与实测结果。

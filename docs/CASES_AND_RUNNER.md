@@ -5,10 +5,10 @@
 所有可直接运行的对照都注册在 `Wan21/dykv_cases.py`。公开接口只增加一个枚举参数
 `--dykv-case`，每个 case 一次性确定压缩方式、检索 FOV 来源和裁剪 FOV 来源，不再暴露
 彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink，并使用映射到
-`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，十一个 dyKV case
+`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，十三个 dyKV case
 使用连续的 `4+8+8`。
 
-## 2. 当前十二个 Case
+## 2. 当前十四个 Case
 
 | Case | Sink | dyKV | 检索方法 | 检索时压缩 | 裁剪 FOV | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -24,6 +24,8 @@
 | `retr16_compression_r033` | 固定 4 | 开启 | 相机 `K` | 4 chunk，anchor + `r=1/3` | — | minWM-back D：16 源帧压到 8 帧容量 |
 | `motion_novelty_slot_capped` | 固定 4 | 开启 | 相机 `K` | 连续 FOV token 数 + novelty，单槽受限 | — | flat 方法的 capped packing 消融 |
 | `motion_novelty_unfilled` | 固定 4 | 开启 | 相机 `K` | 连续 FOV token 数 + novelty，flat 欠填 | — | A16 动态压缩基础方法 |
+| `motion_novelty_backfill` | 固定 4 | 开启 | 相机 `K` | A16 基础计划 + 唯一 token 回填 | — | A17：测量真实额外信息的作用 |
+| `motion_novelty_duplicate` | 固定 4 | 开启 | 相机 `K` | A16 基础计划 + 最高相关 chunk token 重复 | — | A18：满长度/attention 重加权诊断 |
 
 `baseline` 必须不带 `--dykv`；其余 case 通过 `--dykv --dykv-case NAME` 启用。除明确用于
 消融的 `worldkv_pose_no_compression` 外，现有检索和几何裁剪 case 都使用归一化相机内参
@@ -40,17 +42,15 @@
 virtual slot 和 `8F` 预算完全一致，只分别按 virtual slot 与 source frame 排列 payload。
 该 case 用于验证非 causal attention 下同步 K/V permutation 的等价性，不是新的压缩方法。
 
-### 计划中、尚不可运行的连续比例 Case
+### 连续比例 Case
 
-`motion_novelty_unfilled` 及其 `motion_novelty_slot_capped` 消融已经可运行。下一阶段计划
-增加 `motion_novelty_backfill` 和 `motion_novelty_duplicate`。它们都使用 chunk 内
-anchor-relative 连续 FOV 新增比例决定
-每帧 token 数，再用 WorldKV novelty 决定具体 token；区别是剩余预算分别保持空闲、补回
-尚未选择的唯一 token、或重复最高 query-relevance chunk 的已选源 token。完整实现契约见
+四个 motion novelty case 均已注册并可由 runner 直接执行。它们都使用 chunk 内
+anchor-relative 连续 FOV 新增比例决定每帧 token 数，再用 WorldKV novelty 决定具体 token；
+区别是 capped 版本限制单个 virtual slot 不超过 `F`，A16 使用 flat 总预算并允许欠填，A17
+补回尚未选择的唯一 token，A18 重复最高 query-relevance chunk 的基础 token。A17/A18
+共享 A16 的候选排名、selected chunk、基础比例和基础索引，并对齐最终 token 数及 slot load。
+完整实现契约见
 [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
-
-backfill 与 duplicate 当前没有注册到 `Wan21/dykv_cases.py`，也不能传给 runner。只有实现、
-单元测试和 runtime 冒烟完成后，才能移入上面的“当前 Case”表和运行命令。
 
 可随时列出注册表：
 
@@ -61,7 +61,7 @@ LIST_CASES=1 bash Wan21/scripts/inference/run_dykv_cases.sh
 
 ## 3. 普通 Prompt 一键运行
 
-默认顺序运行全部九组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
+默认顺序运行全部十四组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
 
 ```bash
 conda activate minwm-fa

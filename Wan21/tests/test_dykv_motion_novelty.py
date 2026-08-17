@@ -96,6 +96,18 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
             ).sort().values
             self.assertTrue(torch.equal(combined, torch.arange(20)))
 
+    def test_exact_overlap_is_not_quantized(self):
+        keep_ratio, keep_tokens = motion.motion_keep_ratio_and_token_count(
+            0.1234,
+            1560,
+        )
+        self.assertAlmostEqual(keep_ratio, 0.8766)
+        self.assertEqual(keep_tokens, math.ceil(0.8766 * 1560))
+        self.assertEqual(motion.motion_keep_ratio_and_token_count(1.0, 1560), (0.0, 0))
+        self.assertEqual(motion.motion_keep_ratio_and_token_count(0.0, 1560), (1.0, 1560))
+        with self.assertRaisesRegex(ValueError, "not finite"):
+            motion.motion_keep_ratio_and_token_count(float("nan"), 1560)
+
     def test_fov_keep_ratio_is_continuous_and_controls_only_token_count(self):
         bank = _bank([(0, 17, 29, 41)], frame_tokens=100)
         chunk = motion.build_motion_chunk_plan(
@@ -210,6 +222,144 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
         self.assertTrue(all(frame.virtual_slot_id >= 4 for frame in plan.frames))
         self.assertEqual(len(payload["source_frame_ids"]), 3)
         self.assertEqual(payload["k"].shape[1], 60)
+
+    def test_invalid_motion_geometry_is_reported_without_fallback(self):
+        bank = _bank([(0, 10, 20, 30), (0, 10, 20, 30)], frame_tokens=20)
+        invalid = bank.blocks[1]
+        bank.blocks[1] = memory.MemoryBlock(
+            block_id=invalid.block_id,
+            frame_start=invalid.frame_start,
+            frame_count=invalid.frame_count,
+            layers=invalid.layers,
+            viewmats=invalid.viewmats,
+            Ks=None,
+            spatial_shape=invalid.spatial_shape,
+        )
+        plan = motion.build_motion_retrieval_plan(
+            bank,
+            (0, 1),
+            (0.1, 0.2),
+            probe_points=self.points,
+            radius=8.0,
+            frame_tokens=20,
+            memory_frames=8,
+            sink_frames=4,
+            slot_capped=False,
+        )
+        self.assertEqual(plan.selected_block_indices, (0,))
+        self.assertEqual(plan.geometry_invalid_block_indices, (1,))
+
+    def test_backfill_and_duplicate_share_reference_shape_and_slots(self):
+        bank = _bank([(0, 17, 29, 41)] * 5, frame_tokens=40)
+        common = dict(
+            bank=bank,
+            ranked_block_indices=list(range(5)),
+            ranked_distances=[0.01 * index for index in range(5)],
+            probe_points=self.points,
+            radius=8.0,
+            frame_tokens=40,
+            memory_frames=8,
+            sink_frames=4,
+            slot_capped=False,
+        )
+        unfilled = motion.build_motion_retrieval_plan(
+            **common,
+            fill_mode="unfilled",
+        )
+        backfill = motion.build_motion_retrieval_plan(
+            **common,
+            fill_mode="backfill",
+        )
+        duplicate = motion.build_motion_retrieval_plan(
+            **common,
+            fill_mode="duplicate",
+        )
+        backfill_payload = motion.materialize_motion_retrieval(
+            bank, backfill, target_device="cpu", frame_tokens=40
+        )[0]
+        duplicate_payload = motion.materialize_motion_retrieval(
+            bank, duplicate, target_device="cpu", frame_tokens=40
+        )[0]
+
+        self.assertEqual(
+            unfilled.selected_block_indices,
+            backfill.selected_block_indices,
+        )
+        self.assertEqual(
+            unfilled.selected_block_indices,
+            duplicate.selected_block_indices,
+        )
+        self.assertEqual(unfilled.base_used_tokens, backfill.base_used_tokens)
+        self.assertEqual(unfilled.base_used_tokens, duplicate.base_used_tokens)
+        self.assertEqual(backfill.slot_token_loads, duplicate.slot_token_loads)
+        self.assertEqual(
+            backfill_payload["final_tokens_total"],
+            backfill.fill_target_tokens,
+        )
+        self.assertEqual(
+            duplicate_payload["final_tokens_total"],
+            backfill_payload["final_tokens_total"],
+        )
+        self.assertGreater(backfill_payload["unique_backfill_tokens_total"], 0)
+        self.assertEqual(backfill_payload["duplicate_tokens_total"], 0)
+        self.assertEqual(backfill_payload["max_source_token_multiplicity"], 1)
+        self.assertEqual(duplicate_payload["unique_backfill_tokens_total"], 0)
+        self.assertGreater(duplicate_payload["duplicate_tokens_total"], 0)
+        self.assertGreater(duplicate_payload["max_source_token_multiplicity"], 1)
+        self.assertEqual(
+            duplicate.duplicate_source_block_indices,
+            (duplicate.selected_block_indices[0],),
+        )
+        self.assertEqual(
+            backfill_payload["source_frame_ids"],
+            sorted(backfill_payload["source_frame_ids"]),
+        )
+        self.assertEqual(
+            duplicate_payload["source_frame_ids"],
+            sorted(duplicate_payload["source_frame_ids"]),
+        )
+        unfilled_slots = {
+            frame.source_frame_id: frame.virtual_slot_id for frame in unfilled.frames
+        }
+        backfill_slots = {
+            frame.source_frame_id: frame.virtual_slot_id for frame in backfill.frames
+        }
+        self.assertEqual(unfilled_slots, backfill_slots)
+
+        repeat_chunk = duplicate.chunks[0]
+        repeat_pool = {
+            frame.frame_offset: set(frame.base_indices.tolist())
+            for frame in repeat_chunk.frames
+        }
+        duplicate_segments = [
+            segment
+            for segment in duplicate.segments
+            if segment.selection_kind == "duplicate"
+        ]
+        self.assertTrue(duplicate_segments)
+        for segment in duplicate_segments:
+            self.assertEqual(segment.block_index, duplicate.selected_block_indices[0])
+            self.assertTrue(
+                set(segment.token_indices.tolist()).issubset(
+                    repeat_pool[segment.frame_offset]
+                )
+            )
+        expected_quotas = motion._proportional_allocation(
+            [frame.base_token_count for frame in repeat_chunk.frames],
+            duplicate_payload["duplicate_tokens_total"],
+        )
+        duplicate_by_source = dict(
+            zip(
+                [frame.source_frame_id for frame in sorted(
+                    duplicate.frames, key=lambda item: item.source_frame_id
+                )],
+                duplicate.duplicate_tokens_per_frame,
+            )
+        )
+        self.assertEqual(
+            [duplicate_by_source[frame.source_frame_id] for frame in repeat_chunk.frames],
+            expected_quotas,
+        )
 
 
 if __name__ == "__main__":

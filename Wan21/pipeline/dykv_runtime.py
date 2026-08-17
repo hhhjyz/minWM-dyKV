@@ -124,7 +124,15 @@ class DyKVRuntime:
         if self.config.packing_mode in {
             "motion_novelty_slot_capped",
             "motion_novelty_flat",
+            "motion_novelty_backfill",
+            "motion_novelty_duplicate",
         }:
+            fill_mode = {
+                "motion_novelty_slot_capped": "unfilled",
+                "motion_novelty_flat": "unfilled",
+                "motion_novelty_backfill": "backfill",
+                "motion_novelty_duplicate": "duplicate",
+            }[self.config.packing_mode]
             packing_plan = build_motion_retrieval_plan(
                 bank,
                 ranked_candidates,
@@ -138,6 +146,7 @@ class DyKVRuntime:
                     self.config.packing_mode == "motion_novelty_slot_capped"
                 ),
                 candidate_block_indices=candidates,
+                fill_mode=fill_mode,
             )
             payloads = materialize_motion_retrieval(
                 bank,

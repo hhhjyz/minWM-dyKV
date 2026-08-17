@@ -142,6 +142,24 @@ DYKV_CASES = {
             retrieval_frames=16,
             retrieval_layout="flat_source_ordered",
         ),
+        DyKVCase(
+            "motion_novelty_backfill",
+            True,
+            "motion_novelty",
+            "连续 FOV novelty 后补回唯一 token 至 reference 目标",
+            packing_mode="motion_novelty_backfill",
+            retrieval_frames=16,
+            retrieval_layout="flat_source_ordered",
+        ),
+        DyKVCase(
+            "motion_novelty_duplicate",
+            True,
+            "motion_novelty",
+            "重复最高相关 chunk 的基础 token，对齐 backfill 长度与 slot load",
+            packing_mode="motion_novelty_duplicate",
+            retrieval_frames=16,
+            retrieval_layout="flat_source_ordered",
+        ),
     )
 }
 

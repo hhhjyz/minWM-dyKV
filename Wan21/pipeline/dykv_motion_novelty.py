@@ -16,6 +16,22 @@ SOURCE_ORDERED_LAYOUT = "source_ordered"
 FLAT_SOURCE_ORDERED_LAYOUT = "flat_source_ordered"
 
 
+def motion_keep_ratio_and_token_count(
+    overlap_ratio: float,
+    frame_tokens: int,
+) -> tuple[float, int]:
+    overlap = float(overlap_ratio)
+    if not math.isfinite(overlap):
+        raise ValueError("motion novelty FOV overlap is not finite")
+    overlap = min(1.0, max(0.0, overlap))
+    keep_ratio = min(1.0, max(0.0, 1.0 - overlap))
+    keep_tokens = min(
+        int(frame_tokens),
+        max(0, int(math.ceil(keep_ratio * int(frame_tokens)))),
+    )
+    return keep_ratio, keep_tokens
+
+
 @dataclass(frozen=True)
 class MotionFramePlan:
     block_index: int
@@ -24,6 +40,7 @@ class MotionFramePlan:
     fov_overlap: float
     keep_ratio: float
     base_indices: torch.Tensor
+    base_indices_in_selection_order: torch.Tensor
     omitted_indices_in_novelty_order: torch.Tensor
     relative_rotation_degrees: float
     relative_translation_distance: float
@@ -55,6 +72,21 @@ class MotionChunkPlan:
 
 
 @dataclass(frozen=True)
+class MotionSegmentPlan:
+    block_index: int
+    frame_offset: int
+    source_frame_id: int
+    token_indices: torch.Tensor
+    virtual_slot_id: int
+    selection_kind: str
+    duplicate_ordinal: int = 0
+
+    @property
+    def token_count(self) -> int:
+        return int(self.token_indices.numel())
+
+
+@dataclass(frozen=True)
 class MotionRetrievalPlan:
     chunks: tuple[MotionChunkPlan, ...]
     selected_block_indices: tuple[int, ...]
@@ -66,6 +98,12 @@ class MotionRetrievalPlan:
     reference_frame_lengths: tuple[int, ...]
     slot_token_loads: tuple[int, ...]
     retrieval_layout: str
+    fill_mode: str
+    segments: tuple[MotionSegmentPlan, ...]
+    unique_backfill_tokens_per_frame: tuple[int, ...]
+    duplicate_tokens_per_frame: tuple[int, ...]
+    duplicate_source_block_indices: tuple[int, ...]
+    max_source_token_multiplicity: int
 
     @property
     def frames(self) -> tuple[MotionFramePlan, ...]:
@@ -167,13 +205,13 @@ def build_motion_chunk_plan(
             if not math.isfinite(overlap):
                 raise ValueError("motion novelty FOV overlap is not finite")
             overlap = min(1.0, max(0.0, overlap))
-            keep_ratio = min(1.0, max(0.0, 1.0 - overlap))
-            keep_tokens = min(
-                int(frame_tokens),
-                max(0, int(math.ceil(keep_ratio * int(frame_tokens)))),
+            keep_ratio, keep_tokens = motion_keep_ratio_and_token_count(
+                overlap,
+                frame_tokens,
             )
         novelty_order = orders[frame_offset]
-        base = novelty_order[:keep_tokens].sort().values
+        base_selection_order = novelty_order[:keep_tokens].clone()
+        base = base_selection_order.sort().values
         omitted = novelty_order[keep_tokens:].clone()
         frames.append(
             MotionFramePlan(
@@ -183,6 +221,7 @@ def build_motion_chunk_plan(
                 fov_overlap=overlap,
                 keep_ratio=keep_ratio,
                 base_indices=base,
+                base_indices_in_selection_order=base_selection_order,
                 omitted_indices_in_novelty_order=omitted,
                 relative_rotation_degrees=rotation,
                 relative_translation_distance=translation,
@@ -225,6 +264,171 @@ def _largest_remainder_allocation(capacities: Sequence[int], total: int) -> list
         if not progressed:
             raise RuntimeError("largest-remainder allocation could not reach target")
     return output
+
+
+def _proportional_allocation(weights: Sequence[int], total: int) -> list[int]:
+    weights = [max(0, int(value)) for value in weights]
+    total = max(0, int(total))
+    if total == 0:
+        return [0] * len(weights)
+    weight_sum = sum(weights)
+    if weight_sum <= 0:
+        raise ValueError("duplicate allocation requires a non-empty repeat pool")
+    quotas = [total * weight / weight_sum for weight in weights]
+    output = [int(math.floor(quota)) for quota in quotas]
+    remaining = total - sum(output)
+    order = sorted(
+        range(len(weights)),
+        key=lambda index: (-(quotas[index] - output[index]), index),
+    )
+    for index in order[:remaining]:
+        output[index] += 1
+    return output
+
+
+def _base_segments(frames: Sequence[MotionFramePlan]) -> list[MotionSegmentPlan]:
+    return [
+        MotionSegmentPlan(
+            block_index=frame.block_index,
+            frame_offset=frame.frame_offset,
+            source_frame_id=frame.source_frame_id,
+            token_indices=frame.base_indices,
+            virtual_slot_id=frame.virtual_slot_id,
+            selection_kind=frame.selection_kind,
+        )
+        for frame in frames
+        if frame.base_token_count > 0
+    ]
+
+
+def _backfilled_segments(
+    frames: Sequence[MotionFramePlan],
+    reference_lengths: Sequence[int],
+) -> tuple[list[MotionSegmentPlan], tuple[int, ...]]:
+    segments = []
+    counts = []
+    for frame, reference_length in zip(frames, reference_lengths):
+        backfill_count = int(reference_length) - frame.base_token_count
+        if backfill_count < 0 or backfill_count > frame.omitted_token_count:
+            raise RuntimeError("motion novelty backfill count is invalid")
+        counts.append(backfill_count)
+        indices = torch.cat(
+            (
+                frame.base_indices,
+                frame.omitted_indices_in_novelty_order[:backfill_count],
+            )
+        ).sort().values
+        if int(indices.unique().numel()) != int(indices.numel()):
+            raise RuntimeError("motion novelty backfill repeated a source token")
+        if indices.numel():
+            segments.append(
+                MotionSegmentPlan(
+                    block_index=frame.block_index,
+                    frame_offset=frame.frame_offset,
+                    source_frame_id=frame.source_frame_id,
+                    token_indices=indices,
+                    virtual_slot_id=frame.virtual_slot_id,
+                    selection_kind=(
+                        "anchor"
+                        if frame.frame_offset == 0
+                        else "motion_novelty_backfill"
+                    ),
+                )
+            )
+    return segments, tuple(counts)
+
+
+def _duplicate_segments(
+    chunks: Sequence[MotionChunkPlan],
+    source_ordered_frames: Sequence[MotionFramePlan],
+    *,
+    target_slot_loads: Sequence[int],
+    sink_frames: int,
+    memory_frames: int,
+) -> tuple[list[MotionSegmentPlan], tuple[int, ...], tuple[int, ...], int]:
+    segments = _base_segments(source_ordered_frames)
+    if not chunks:
+        return segments, (), (), 0
+    base_slot_loads = [0] * int(memory_frames)
+    for frame in source_ordered_frames:
+        if frame.base_token_count:
+            base_slot_loads[frame.virtual_slot_id - int(sink_frames)] += (
+                frame.base_token_count
+            )
+    slot_needs = [
+        int(target) - int(base)
+        for target, base in zip(target_slot_loads, base_slot_loads)
+    ]
+    if any(value < 0 for value in slot_needs):
+        raise RuntimeError("duplicate target slot load is below its base load")
+    duplicate_total = sum(slot_needs)
+    repeat_frames = list(chunks[0].frames)
+    weights = [frame.base_token_count for frame in repeat_frames]
+    quotas = _proportional_allocation(weights, duplicate_total)
+    remaining_by_frame = list(quotas)
+    cursors = [0] * len(repeat_frames)
+    ordinals = [0] * len(repeat_frames)
+    duplicate_per_source = {
+        frame.source_frame_id: 0 for frame in source_ordered_frames
+    }
+    multiplicities: dict[tuple[int, int, int], int] = {}
+    for frame in source_ordered_frames:
+        for token_index in frame.base_indices.tolist():
+            key = (frame.block_index, frame.frame_offset, int(token_index))
+            multiplicities[key] = multiplicities.get(key, 0) + 1
+
+    for slot_offset, slot_need in enumerate(slot_needs):
+        if slot_need <= 0:
+            continue
+        allocation = _largest_remainder_allocation(remaining_by_frame, slot_need)
+        for frame_index, count in enumerate(allocation):
+            if count <= 0:
+                continue
+            frame = repeat_frames[frame_index]
+            pool = frame.base_indices_in_selection_order
+            if pool.numel() == 0:
+                raise RuntimeError("duplicate allocation selected an empty source frame")
+            positions = (
+                torch.arange(count, dtype=torch.long) + cursors[frame_index]
+            ) % int(pool.numel())
+            indices = pool.index_select(0, positions)
+            cursors[frame_index] += count
+            ordinals[frame_index] += 1
+            remaining_by_frame[frame_index] -= count
+            duplicate_per_source[frame.source_frame_id] += count
+            for token_index in indices.tolist():
+                key = (frame.block_index, frame.frame_offset, int(token_index))
+                multiplicities[key] = multiplicities.get(key, 0) + 1
+            segments.append(
+                MotionSegmentPlan(
+                    block_index=frame.block_index,
+                    frame_offset=frame.frame_offset,
+                    source_frame_id=frame.source_frame_id,
+                    token_indices=indices,
+                    virtual_slot_id=int(sink_frames) + slot_offset,
+                    selection_kind="duplicate",
+                    duplicate_ordinal=ordinals[frame_index],
+                )
+            )
+    if any(remaining_by_frame):
+        raise RuntimeError("duplicate allocation did not consume all frame quotas")
+    segments.sort(
+        key=lambda segment: (
+            segment.source_frame_id,
+            0 if segment.selection_kind != "duplicate" else 1,
+            segment.duplicate_ordinal,
+            segment.virtual_slot_id,
+        )
+    )
+    duplicate_counts = tuple(
+        duplicate_per_source[frame.source_frame_id]
+        for frame in source_ordered_frames
+    )
+    duplicate_sources = (
+        (chunks[0].block_index,) if duplicate_total > 0 else ()
+    )
+    max_multiplicity = max(multiplicities.values(), default=0)
+    return segments, duplicate_counts, duplicate_sources, max_multiplicity
 
 
 def _reference_lengths(
@@ -326,9 +530,15 @@ def build_motion_retrieval_plan(
     sink_frames: int,
     slot_capped: bool,
     candidate_block_indices: Sequence[int] | None = None,
+    fill_mode: str = "unfilled",
 ) -> MotionRetrievalPlan:
     if len(ranked_block_indices) != len(ranked_distances):
         raise ValueError("motion novelty ranking and distances must align")
+    fill_mode = str(fill_mode)
+    if fill_mode not in {"unfilled", "backfill", "duplicate"}:
+        raise ValueError(f"unsupported motion novelty fill mode: {fill_mode}")
+    if slot_capped and fill_mode != "unfilled":
+        raise ValueError("slot-capped motion novelty only supports unfilled mode")
     token_budget = int(memory_frames) * int(frame_tokens)
     selected: list[MotionChunkPlan] = []
     all_candidates = tuple(
@@ -418,6 +628,51 @@ def build_motion_retrieval_plan(
             for frame in chunk.frames
         )
         assigned_chunks.append(replace(chunk, frames=chunk_frames))
+    source_ordered_assigned = tuple(
+        sorted(
+            (frame for chunk in assigned_chunks for frame in chunk.frames),
+            key=lambda frame: frame.source_frame_id,
+        )
+    )
+    target_slot_loads = [0] * int(memory_frames)
+    for frame, reference_length in zip(
+        source_ordered_assigned, reference_lengths
+    ):
+        target_slot_loads[frame.virtual_slot_id - int(sink_frames)] += int(
+            reference_length
+        )
+
+    if fill_mode == "backfill":
+        segments, backfill_counts = _backfilled_segments(
+            source_ordered_assigned,
+            reference_lengths,
+        )
+        duplicate_counts = (0,) * len(source_ordered_assigned)
+        duplicate_sources: tuple[int, ...] = ()
+        max_multiplicity = 1 if segments else 0
+        final_slot_loads = tuple(target_slot_loads)
+    elif fill_mode == "duplicate":
+        (
+            segments,
+            duplicate_counts,
+            duplicate_sources,
+            max_multiplicity,
+        ) = _duplicate_segments(
+            tuple(assigned_chunks),
+            source_ordered_assigned,
+            target_slot_loads=target_slot_loads,
+            sink_frames=sink_frames,
+            memory_frames=memory_frames,
+        )
+        backfill_counts = (0,) * len(source_ordered_assigned)
+        final_slot_loads = tuple(target_slot_loads)
+    else:
+        segments = _base_segments(source_ordered_assigned)
+        backfill_counts = (0,) * len(source_ordered_assigned)
+        duplicate_counts = (0,) * len(source_ordered_assigned)
+        duplicate_sources = ()
+        max_multiplicity = 1 if segments else 0
+        final_slot_loads = slot_loads
     return MotionRetrievalPlan(
         chunks=tuple(assigned_chunks),
         selected_block_indices=tuple(chunk.block_index for chunk in selected),
@@ -427,8 +682,14 @@ def build_motion_retrieval_plan(
         base_used_tokens=sum(chunk.base_tokens for chunk in selected),
         fill_target_tokens=fill_target,
         reference_frame_lengths=reference_lengths,
-        slot_token_loads=slot_loads,
+        slot_token_loads=final_slot_loads,
         retrieval_layout=layout,
+        fill_mode=fill_mode,
+        segments=tuple(segments),
+        unique_backfill_tokens_per_frame=tuple(backfill_counts),
+        duplicate_tokens_per_frame=tuple(duplicate_counts),
+        duplicate_source_block_indices=duplicate_sources,
+        max_source_token_multiplicity=max_multiplicity,
     )
 
 
@@ -439,35 +700,54 @@ def materialize_motion_retrieval(
     target_device: torch.device | str,
     frame_tokens: int,
 ) -> list[dict]:
-    frames = tuple(
-        sorted(
-            (frame for frame in plan.frames if frame.base_token_count > 0),
-            key=lambda frame: frame.source_frame_id,
-        )
-    )
-    if not frames:
+    segments = plan.segments
+    if not segments:
         return []
-    layer_count = len(bank.blocks[frames[0].block_index].layers)
-    if any(len(bank.blocks[frame.block_index].layers) != layer_count for frame in frames):
+    layer_count = len(bank.blocks[segments[0].block_index].layers)
+    if any(
+        len(bank.blocks[segment.block_index].layers) != layer_count
+        for segment in segments
+    ):
         raise RuntimeError("motion novelty bank blocks have inconsistent layer counts")
     device = torch.device(target_device)
     payloads = []
-    source_frames = [frame.source_frame_id for frame in frames]
-    frame_lengths = [frame.base_token_count for frame in frames]
-    virtual_slots = [frame.virtual_slot_id for frame in frames]
+    source_frames = [segment.source_frame_id for segment in segments]
+    frame_lengths = [segment.token_count for segment in segments]
+    virtual_slots = [segment.virtual_slot_id for segment in segments]
     selected_starts = sorted(
         bank.blocks[index].frame_start for index in plan.selected_block_indices
     )
-    base_per_chunk = [chunk.base_tokens for chunk in plan.chunks]
     diagnostic_frames = sorted(plan.frames, key=lambda frame: frame.source_frame_id)
     base_per_frame = [frame.base_token_count for frame in diagnostic_frames]
+    backfill_per_frame = list(plan.unique_backfill_tokens_per_frame)
+    duplicate_per_frame = list(plan.duplicate_tokens_per_frame)
+    actual_per_frame = [
+        base + backfill + duplicate
+        for base, backfill, duplicate in zip(
+            base_per_frame, backfill_per_frame, duplicate_per_frame
+        )
+    ]
+    actual_by_source = {
+        frame.source_frame_id: actual
+        for frame, actual in zip(diagnostic_frames, actual_per_frame)
+    }
+    base_per_chunk = [chunk.base_tokens for chunk in plan.chunks]
+    actual_per_chunk = [
+        sum(actual_by_source[frame.source_frame_id] for frame in chunk.frames)
+        for chunk in plan.chunks
+    ]
+    final_tokens = sum(frame_lengths)
+    if final_tokens != sum(actual_per_frame):
+        raise RuntimeError("motion novelty frame and segment totals differ")
+    if final_tokens != sum(plan.slot_token_loads):
+        raise RuntimeError("motion novelty segment and slot totals differ")
     for layer_index in range(layer_count):
         key_parts = []
         value_parts = []
-        for frame in frames:
-            block = bank.blocks[frame.block_index]
-            indices = frame.base_indices.to(device=device) + (
-                frame.frame_offset * int(frame_tokens)
+        for segment in segments:
+            block = bank.blocks[segment.block_index]
+            indices = segment.token_indices.to(device=device) + (
+                segment.frame_offset * int(frame_tokens)
             )
             raw_k = block.layers[layer_index].k.to(device=device)
             raw_v = block.layers[layer_index].v.to(device=device)
@@ -475,7 +755,7 @@ def materialize_motion_retrieval(
             value_parts.append(raw_v.index_select(1, indices))
         packed_k = torch.cat(key_parts, dim=1)
         packed_v = torch.cat(value_parts, dim=1)
-        if int(packed_k.shape[1]) != plan.base_used_tokens:
+        if int(packed_k.shape[1]) != final_tokens:
             raise RuntimeError("motion novelty materialization differs from its plan")
         payloads.append(
             {
@@ -487,12 +767,19 @@ def materialize_motion_retrieval(
                 "retrieval_layout": plan.retrieval_layout,
                 "src_frame_ids": selected_starts,
                 "chunk_frame_counts": [4] * len(plan.chunks),
-                "chunk_token_lengths": base_per_chunk,
+                "chunk_token_lengths": actual_per_chunk,
                 "parent_block_ids": [
-                    bank.blocks[frame.block_index].block_id for frame in frames
+                    bank.blocks[segment.block_index].block_id for segment in segments
                 ],
-                "selection_kinds": [frame.selection_kind for frame in frames],
-                "compression_modes": ["motion_novelty"] * len(frames),
+                "selection_kinds": [
+                    segment.selection_kind for segment in segments
+                ],
+                "duplicate_ordinals": [
+                    segment.duplicate_ordinal for segment in segments
+                ],
+                "compression_modes": [
+                    f"motion_novelty_{plan.fill_mode}"
+                ] * len(segments),
                 "motion_fov_overlaps": [
                     frame.fov_overlap for frame in diagnostic_frames
                 ],
@@ -515,24 +802,29 @@ def materialize_motion_retrieval(
                 "base_tokens_per_frame": base_per_frame,
                 "base_tokens_per_chunk": base_per_chunk,
                 "base_tokens_total": plan.base_used_tokens,
-                "unique_backfill_tokens_per_frame": [0] * len(base_per_frame),
-                "unique_backfill_tokens_total": 0,
-                "duplicate_tokens_per_frame": [0] * len(base_per_frame),
-                "duplicate_tokens_total": 0,
-                "duplicate_source_block_ids": [],
-                "max_source_token_multiplicity": 1,
-                "actual_tokens_per_frame": base_per_frame,
-                "final_tokens_total": plan.base_used_tokens,
+                "unique_backfill_tokens_per_frame": backfill_per_frame,
+                "unique_backfill_tokens_total": sum(backfill_per_frame),
+                "duplicate_tokens_per_frame": duplicate_per_frame,
+                "duplicate_tokens_total": sum(duplicate_per_frame),
+                "duplicate_source_block_ids": [
+                    bank.blocks[index].block_id
+                    for index in plan.duplicate_source_block_indices
+                ],
+                "max_source_token_multiplicity": (
+                    plan.max_source_token_multiplicity
+                ),
+                "actual_tokens_per_frame": actual_per_frame,
+                "final_tokens_total": final_tokens,
                 "fill_target_tokens": plan.fill_target_tokens,
-                "unused_tokens": plan.token_budget - plan.base_used_tokens,
+                "unused_tokens": plan.token_budget - final_tokens,
                 "slot_token_loads": list(plan.slot_token_loads),
                 "segments_source_ordered": True,
-                "kept_tokens_per_frame": base_per_frame,
+                "kept_tokens_per_frame": actual_per_frame,
                 "packing_used_virtual_slots": sum(
                     1 for load in plan.slot_token_loads if load > 0
                 ),
                 "raw_tokens": len(plan.chunks) * 4 * int(frame_tokens),
-                "kept_tokens": plan.base_used_tokens,
+                "kept_tokens": final_tokens,
                 "token_budget": plan.token_budget,
             }
         )

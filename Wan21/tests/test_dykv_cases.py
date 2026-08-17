@@ -29,6 +29,8 @@ class DyKVCasesTest(unittest.TestCase):
                 "retr16_compression_r033",
                 "motion_novelty_slot_capped",
                 "motion_novelty_unfilled",
+                "motion_novelty_backfill",
+                "motion_novelty_duplicate",
             ),
         )
 
@@ -112,6 +114,12 @@ class DyKVCasesTest(unittest.TestCase):
         self.assertEqual(flat.retrieval_layout, "flat_source_ordered")
         self.assertEqual(capped.retrieval_mode, flat.retrieval_mode)
         self.assertEqual(capped.retrieval_frames, flat.retrieval_frames)
+        backfill = cases.get_dykv_case("motion_novelty_backfill")
+        duplicate = cases.get_dykv_case("motion_novelty_duplicate")
+        self.assertEqual(backfill.retrieval_layout, "flat_source_ordered")
+        self.assertEqual(duplicate.retrieval_layout, "flat_source_ordered")
+        self.assertEqual(backfill.compression_mode, "motion_novelty")
+        self.assertEqual(duplicate.compression_mode, "motion_novelty")
 
     def test_every_case_uses_the_same_fixed_four_frame_sink(self):
         for preset in cases.DYKV_CASES.values():
