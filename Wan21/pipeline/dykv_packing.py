@@ -89,10 +89,6 @@ class PackedFramePlan:
     virtual_slot_id: int = -1
     delta_yaw_degrees: float | None = None
     horizontal_fov_degrees: float | None = None
-    predecessor_frame_start: int | None = None
-    incremental_yaw_degrees: float | None = None
-    incremental_fov_ratio: float | None = None
-    query_backfill_tokens: int = 0
 
     @property
     def token_count(self) -> int:
@@ -643,18 +639,6 @@ def materialize_packed_retrieval(
                 ],
                 "horizontal_fov_degrees": [
                     frame.horizontal_fov_degrees for frame in plan.frames
-                ],
-                "predecessor_frame_starts": [
-                    frame.predecessor_frame_start for frame in plan.frames
-                ],
-                "incremental_yaw_degrees": [
-                    frame.incremental_yaw_degrees for frame in plan.frames
-                ],
-                "incremental_fov_ratios": [
-                    frame.incremental_fov_ratio for frame in plan.frames
-                ],
-                "query_backfill_tokens": [
-                    frame.query_backfill_tokens for frame in plan.frames
                 ],
                 "selected_full_block_ids": [
                     bank.blocks[index].block_id for index in plan.selected_full_blocks

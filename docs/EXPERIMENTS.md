@@ -43,9 +43,6 @@ conda activate minwm-fa
 | B6 | `retr8_compression_r050` | 8 源帧、固定 `r=1/2` | 固定覆盖下的压缩损失 | 待运行 |
 | B7 | `retr12_compression_r050` | 12 源帧、固定 `r=1/2` | 同比例下扩充 chunk 的收益 | 待运行 |
 | B8 | `retr16_compression_r033` | 16 源帧、固定 `r=1/3` | 与 8 帧不压缩严格等 token 对比 | 待运行 |
-| B9 | `predecessor_chunks` | 前驱新增角域四档压缩，完整 chunk | 验证压缩依据从 query 改为前驱的影响 | 待运行 |
-| B10 | `predecessor_chunks_latent` | B9 + 单 latent 尾部 | 验证剩余容量带来的历史覆盖收益 | 待运行 |
-| B11 | `predecessor_query_backfill` | B10 + 当前 query coverage 回填 | 推荐完整方案；验证跨度与当前相关性 | 待运行 |
 
 以上 case 均可由 `Wan21/scripts/inference/run_dykv_cases.sh` 统一运行。固定 FOV 与混合
 FOV 消融已移除；FOV 路径统一使用相机内参，B1-W 则明确只使用 WorldKV 外参位姿得分。定义见
@@ -63,21 +60,8 @@ RoPE 训练窗口。
 E0；B4/B5 分别对应 E1/E2。
 minWM-back 固定比例 A--D 对照由 B1/B6/B7/B8 构成，具体预算与适配差异见
 [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)。
-B9--B11 的压缩参考系、四档规则和 32 原子精确装箱见
-[`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
 B1 与 B1-W 的唯一实验变量是 FOV overlap 或 WorldKV 平均位姿得分，见
 [`WORLDKV_RETRIEVAL_ABLATION.md`](WORLDKV_RETRIEVAL_ABLATION.md)。
-
-### 历史精度阻塞与重新运行要求
-
-旧推理入口曾把相机 `viewmats/Ks` 量化为 BF16，已有 `predecessor_chunks` 典型样本因此
-全部记录为 `predecessor_fixed_novelty_fallback` 和 `keep_tier=0.5`，最大只装入 4 个 chunk。
-当前版本已让 dyKV 几何保持 FP32，并在 PRoPE 内部单独转换计算副本；对应回归测试已确认
-`j*7` 进入 `predecessor_incremental_yaw` 的 `1/4` 档。旧产物仍只能视为链路冒烟，不能
-登记为 B9--B11 四档结果。新实验必须使用全新输出目录，并以日志出现
-`predecessor_incremental_yaw`、非空 `incremental_fov_ratios` 和预期四档为验收条件。
-完整修复与判读方法见
-[`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。
 
 ## 评测分组
 
@@ -119,36 +103,15 @@ B1 正式质量指标已经完成，核心结果表仍保持“待运行”。
 | 待运行 | B6 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 8 帧固定 1/2 |
 | 待运行 | B7 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 12 帧固定 1/2 |
 | 待运行 | B8 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 16 帧固定 1/3 |
-| 待运行 | B9 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 前驱四档完整 chunk |
-| 待运行 | B10 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 加 latent 尾部 |
-| 待运行 | B11 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 推荐 predecessor 完整方案 |
 
 禁止用估计值替换“待运行”，表中只记录实测结果。
 
 ## 实现冒烟测试
 
-### 当前 FP32 相机链路与 predecessor 冒烟
-
-该记录验证本文档所在提交的 FP32 几何修复和连续 `4+8+8` predecessor 链路，不代表
-MBench 分数。
-
-| 字段 | 实测值 |
-| --- | --- |
-| 日期 / commit | 2026-08-14 / 本文档所在提交 |
-| 环境 | `minwm-fa` |
-| Checkpoint | Action2V DMD `model.pt` |
-| Prompt / seed | 1 条合成的红色木屋闭环 prompt / 0 |
-| 轨迹 | `j*10,l*10,n*3` |
-| 长度 | 24 latent 帧 |
-| 第 20 帧候选 / 选中 | 候选 block `[1,2,3]`；选中 source starts `[4,8,12]` |
-| 几何路径 | 12/12 frame segment 为 `predecessor_incremental_yaw`，没有 fallback |
-| 四档与预算 | 12/12 为 `1/4`；使用 12/32 atoms；每层 4680 retrieval token |
-| 输出 | `/tmp/minwm_dykv_fp32_predecessor_smoke`（临时实现验收产物） |
-
 ### 历史冒烟
 
 以下是历史冒烟记录，只验证当时提交的实现链路，不代表 MBench 分数，也不验证当前连续
-`4+8+8`、动态装箱或 predecessor 路径。短闭环轨迹曾跨过第 20 帧启用边界。
+`4+8+8` 或动态装箱路径。短闭环轨迹曾跨过第 20 帧启用边界。
 
 | 字段 | 实测值 |
 | --- | --- |

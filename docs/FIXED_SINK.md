@@ -58,9 +58,6 @@ dyKV cases:
 | `yaw_intrinsics` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `packed_chunks` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `packed_chunks_latent` | 固定最初 4 帧 | retrieval 8 + local 8 |
-| `predecessor_chunks` | 固定最初 4 帧 | retrieval 8 + local 8 |
-| `predecessor_chunks_latent` | 固定最初 4 帧 | retrieval 8 + local 8 |
-| `predecessor_query_backfill` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `retr8_compression_r050` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `retr12_compression_r050` | 固定最初 4 帧 | retrieval 8 + local 8 |
 | `retr16_compression_r033` | 固定最初 4 帧 | retrieval 8 + local 8 |

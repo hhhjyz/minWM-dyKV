@@ -40,7 +40,6 @@ baseline
 retrieval_no_compression
 worldkv_pose_no_compression
 yaw_intrinsics
-predecessor_query_backfill
 其他注册 case
 ```
 

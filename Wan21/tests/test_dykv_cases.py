@@ -24,9 +24,6 @@ class DyKVCasesTest(unittest.TestCase):
                 "yaw_intrinsics",
                 "packed_chunks",
                 "packed_chunks_latent",
-                "predecessor_chunks",
-                "predecessor_chunks_latent",
-                "predecessor_query_backfill",
                 "retr8_compression_r050",
                 "retr12_compression_r050",
                 "retr16_compression_r033",
@@ -60,18 +57,6 @@ class DyKVCasesTest(unittest.TestCase):
         self.assertEqual(
             cases.get_dykv_case("packed_chunks").packing_mode,
             "whole_chunks",
-        )
-        self.assertEqual(
-            cases.get_dykv_case("predecessor_chunks").packing_mode,
-            "predecessor_chunks",
-        )
-        self.assertEqual(
-            cases.get_dykv_case("predecessor_chunks_latent").packing_mode,
-            "predecessor_chunks_and_latents",
-        )
-        self.assertEqual(
-            cases.get_dykv_case("predecessor_query_backfill").packing_mode,
-            "predecessor_query_backfill",
         )
 
     def test_minwm_back_fixed_budget_cases_are_registered(self):

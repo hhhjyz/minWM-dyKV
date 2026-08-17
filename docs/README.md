@@ -31,16 +31,14 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - `--dykv`：启用 dyKV；未指定 case 时为兼容已有结果，默认选择 `yaw_intrinsics`；
 - `--dykv-case`：从注册好的整体实验预设中选择，不暴露单个内部超参数。
 
-`yaw_intrinsics` 是保留兼容性的 E0 默认预设；当前推荐的前驱增量完整方案是
-`predecessor_query_backfill`，必须显式用 `--dykv-case` 或 runner 的 `CASES` 选择。两者
-都属于已注册方法，不能在文档中笼统地共称为同一个“完整方法”。
+`yaw_intrinsics` 是保留兼容性的 E0 默认预设；其他方法通过 `--dykv-case` 或 runner 的
+`CASES` 显式选择。
 
 区域大小等实现常量集中在一个带类型的配置对象中。这样既能在 Python 层进行消融实验，
 也不会把每个内部设计都变成命令行超参数。
 
 ## 模块文档
 
-- [`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)：从无损 KV 归档、当前-query FOV 检索、前驱旋转四档压缩、动态装箱到 RoPE rebase 的完整代码流程，以及 FP32 几何修复与旧 BF16 产物边界；
 - [`KV_MEMORY.md`](KV_MEMORY.md)：逐出存储、检索载荷与检索时压缩；
 - [`FIXED_SINK.md`](FIXED_SINK.md)：所有 case 的固定四帧 sink 与公平缓存布局；
 - [`TRI_REGION_ROPE.md`](TRI_REGION_ROPE.md)：有界时序位置布局；
@@ -50,10 +48,9 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - [`RETRIEVAL_NO_COMPRESSION_DIAGNOSIS.md`](RETRIEVAL_NO_COMPRESSION_DIAGNOSIS.md)：典型样本最后六个 chunk 的无压缩检索日志、预算/RoPE 检查及低于 baseline 的策略原因分析；
 - [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)：基于相机视场的动态空间 token 裁剪、MBench 适合性与实施计划；
 - [`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md)：压缩后扩充历史 chunk、latent 尾部补齐与可变载荷 RoPE 方案；
-- [`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)：当前-query 检索、前驱新增角域四档压缩、`3/4` 装箱与 coverage 回填；
 - [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)：minWM-back 固定压缩率与 chunk 数 A--D 对照；
 - [`ABLATIONS.md`](ABLATIONS.md)：动态压缩、检索与几何设计的消融实验矩阵；
-- [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)：十三个可运行 case 与普通/MBench 统一 runner；
+- [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)：十个可运行 case 与普通/MBench 统一 runner；
 - [`MBENCH.md`](MBENCH.md)：用例转换、生成与评测流程；
 - [`MBENCH_TYPICAL_SAMPLES.md`](MBENCH_TYPICAL_SAMPLES.md)：四/八个典型样本及小规模对比命令；
 - [`EXPERIMENTS.md`](EXPERIMENTS.md)：实验矩阵、运行命令、环境与实测结果。

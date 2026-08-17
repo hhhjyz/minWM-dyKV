@@ -33,17 +33,11 @@
 背景地标都容易辨认的首帧。由于 25 秒条件执行 yaw 往返，结尾返回初始视角后，可以直接
 检查这些主体的身份、颜色、轮廓和相对位置是否恢复。所有方法均固定最初 4 帧 sink。
 最小兼容性检查可比较 `baseline`、`retrieval_no_compression` 和
-`yaw_intrinsics`，共生成 12 个视频；它只覆盖 E0 默认路径，不代表当前 predecessor
-完整方法已经参与比较。
+`yaw_intrinsics`，共生成 12 个视频；它只覆盖 E0 默认路径。
 
 若只比较动态扩容机制，可将三组 case 改为
 `yaw_intrinsics,packed_chunks,packed_chunks_latent`，仍只生成 12 个视频，分别对应
 E0/E1/E2。
-
-验证当前 predecessor 方案时，推荐比较
-`baseline,retrieval_no_compression,yaw_intrinsics,predecessor_chunks_latent,predecessor_query_backfill`，
-四个样本共生成 20 个视频。这样既保留无记忆、不压缩和 E0 对照，也能分离 latent 尾部与
-query coverage 回填的增益。
 
 ## 3. 扩展的八样本集合
 
@@ -77,19 +71,6 @@ NUM_OUTPUT_FRAMES=100 \
 SEED=0 \
 OUTPUT_ROOT=output/mbench_typical_4_salient_v2 \
 MODEL_PREFIX=minwm_typical4_salient_v2 \
-bash Wan21/scripts/inference/run_dykv_cases.sh
-```
-
-当前 predecessor 核心小规模对比：
-
-```bash
-MBENCH_ROOT=/data/zju-151/jiangyize/research/datasets/MBench-Data/MBench-A \
-ASSIGNMENTS="$PWD/Wan21/prompts/mbench_typical_4.jsonl" \
-CASES=baseline,retrieval_no_compression,yaw_intrinsics,predecessor_chunks_latent,predecessor_query_backfill \
-NUM_OUTPUT_FRAMES=100 \
-SEED=0 \
-OUTPUT_ROOT=output/mbench_typical_4_salient_v2_predecessor \
-MODEL_PREFIX=minwm_typical4_salient_v2_predecessor \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
 

@@ -75,9 +75,6 @@ class DyKVConfig:
             "whole_chunks",
             "whole_chunks_and_latents",
             "fixed_worldkv",
-            "predecessor_chunks",
-            "predecessor_chunks_and_latents",
-            "predecessor_query_backfill",
         }:
             raise ValueError(
                 "unsupported dyKV packing_mode"

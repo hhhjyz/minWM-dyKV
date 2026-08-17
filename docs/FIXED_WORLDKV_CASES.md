@@ -57,7 +57,7 @@ bash Wan21/scripts/inference/run_dykv_cases.sh
 
 ```bash
 conda activate minwm-fa
-CASES=retrieval_no_compression,retr12_compression_r050,retr16_compression_r033,yaw_intrinsics,packed_chunks_latent,predecessor_chunks_latent,predecessor_query_backfill \
+CASES=retrieval_no_compression,retr12_compression_r050,retr16_compression_r033,yaw_intrinsics,packed_chunks_latent \
 OUTPUT_ROOT=output/fixed_vs_dynamic \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```

@@ -27,7 +27,6 @@ def _load(name):
 _load("dykv_fov")
 memory = _load("dykv_memory")
 _load("dykv_packing")
-_load("dykv_predecessor")
 _load("dykv_worldkv")
 runtime_module = _load("dykv_runtime")
 
@@ -247,47 +246,6 @@ class DyKVRuntimeTest(unittest.TestCase):
         event = runtime.summary()["events"][0]
         self.assertEqual(event["fixed_retrieval_frames"], 16)
         self.assertAlmostEqual(event["fixed_keep_ratio"], 1.0 / 3.0)
-
-    def test_predecessor_runtime_uses_current_query_ranking_and_expands_history(self):
-        config = memory.DyKVConfig(
-            enabled=True,
-            fov_samples=2048,
-            packing_mode="predecessor_chunks",
-        )
-        runtime = runtime_module.DyKVRuntime(config, chunk_frames=4)
-        for block_index in range(9):
-            yaw = block_index * 10.0
-            runtime.archive(
-                "main",
-                [_cache(block_index, tokens=64)],
-                frame_start=block_index * 4,
-                frame_count=4,
-                frame_tokens=16,
-                viewmats=torch.stack([_yaw_w2c(yaw)] * 4).unsqueeze(0),
-                Ks=_intrinsics(),
-                spatial_shape=(2, 8),
-            )
-
-        current = torch.stack([_yaw_w2c(90.0)] * 4).unsqueeze(0)
-        payload = runtime.retrieve(
-            "main",
-            current_frame=36,
-            current_viewmats=current,
-            current_Ks=_intrinsics(),
-            frame_tokens=16,
-            target_device="cpu",
-        )[0]
-
-        self.assertGreater(len(payload["source_frame_ids"]), 8)
-        self.assertLessEqual(payload["k"].shape[1], 8 * 16)
-        self.assertTrue(all(value is not None for value in payload["predecessor_frame_starts"]))
-        event = runtime.summary()["events"][0]
-        self.assertEqual(event["packing_mode"], "predecessor_chunks")
-        self.assertEqual(
-            event["ranked_candidate_block_ids"][0],
-            max(event["ranked_candidate_block_ids"]),
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

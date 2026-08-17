@@ -4,9 +4,7 @@
 > `yaw_intrinsics` 保留原来的 E0 行为；`packed_chunks` 和
 > `packed_chunks_latent` 分别实现 E1、E2，便于直接公平对照。
 
-本文件描述的是“历史块相对当前 query”的第一版动态装箱。后续新增的“当前 query 只负责
-检索、历史块相对前驱 chunk 压缩”、`3/4` 档精确装箱及 query coverage 回填已实现为独立
-case，见 [`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
+本文件描述“历史块相对当前 query”的动态装箱路径。
 
 ## 实现入口
 
@@ -106,9 +104,8 @@ chunk 内相机步长较小时，各帧比例通常接近。
 Wan latent 空间网格为 `30×52`，宽度 52 可以被 2 和 4 整除，因此 50%/25% 分别对应
 固定的 26/13 列，不需要 token 舍入。
 
-阈值是第一版内部预设，不作为新的公开连续超参数。predecessor 系列后来增加了
-`{1, 3/4, 1/2, 1/4}`，但它同时改变了压缩参考系，不能直接当作仅增加 `3/4` 档的单变量
-E4 结论；严格 E4 仍需在同一 query-relative 参考系下比较。
+阈值是第一版内部预设，不作为新的公开连续超参数。严格 E4 仍需在同一 query-relative
+参考系下比较。
 
 对于相同内参、单个 query 位姿和纯 yaw，可用下式直观理解档位与角度的关系：
 
@@ -411,8 +408,7 @@ OUTPUT_ROOT=output/dykv_packing_e0_e2 \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
 
-E3、E5、E6 仍是后续机制消融。`3/4` 分箱代码已在 predecessor 路径实现并测试，但由于
-参考系同时变化，严格的 query-relative E4 实验仍不得标记为完成。
+E3--E6 仍是后续机制消融，不得在实现和真实实验完成前标记为完成。
 
 所有实验固定总 retrieval token 上限为 12480，保持 checkpoint、MBench case、seed、轨迹和
 `4+8+8` RoPE 边界一致。报告时必须同时给出：源历史 latent 数、完整 chunk 数、尾部 latent
@@ -440,8 +436,7 @@ E3、E5、E6 仍是后续机制消融。`3/4` 分箱代码已在 predecessor 路
 - chunk 大小和槽位映射只有少数规则，便于理解和测试；
 - 不需要修改无损 CPU bank，也不增加公开连续超参数。
 
-当前另有 predecessor P0--P2 路径实现四档装箱与 coverage 回填，见对应文档。E0--E3 和
-P0--P2 仍需在相同典型 MBench 样本上验证 slot sharing 的质量影响；单元测试通过不能替代
+E0--E3 仍需在相同典型 MBench 样本上验证 slot sharing 的质量影响；单元测试通过不能替代
 视频实验结论。
 
 ## 10. 暂不采用的替代方案

@@ -65,7 +65,7 @@ cache 中的 K 和当前 Q 已经应用过 RoPE。因此，重映射只需在复
 `target_position - source_position` 对应的相对旋转，空间高/宽通道保持不变。所有操作
 都会先复制输入，避免多次去噪调用在 cache 或记忆库中累积旋转。
 
-未装箱的完整检索块仍可按块起点重映射。动态装箱、固定 WorldKV 和 predecessor case 则
+未装箱的完整检索块仍可按块起点重映射。动态装箱和固定 WorldKV case 则
 不能再按整个 chunk 假设固定长度：每个压缩 frame segment 显式携带
 `source_frame_id`、`frame_token_length` 和 `virtual_slot_id`，分别乘以
 `virtual_slot_id - source_frame_id` 的时序旋转。同一虚拟槽可以容纳多个 segment，但其
@@ -88,5 +88,4 @@ token 总数不得超过一个完整 latent；空间高/宽 RoPE 通道保持不
 路径；相机几何信息只负责检索选择，存档时不会在记忆库中重复保存 PRoPE 张量。
 
 当前测试覆盖按块 rebase、多个压缩 segment 共享槽、`1/4` 原子对齐、单槽容量上限、
-query 固定映射到 16--19，以及 baseline 空 retrieval 布局。`3/4` predecessor segment
-使用三个原子，沿用同一帧级协议，不需要扩大 RoPE 范围。
+query 固定映射到 16--19，以及 baseline 空 retrieval 布局。

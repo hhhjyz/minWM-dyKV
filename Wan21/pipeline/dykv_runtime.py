@@ -14,7 +14,6 @@ from .dykv_packing import (
     materialize_fixed_worldkv_retrieval,
     materialize_packed_retrieval,
 )
-from .dykv_predecessor import build_predecessor_retrieval_plan
 from .dykv_worldkv import select_worldkv_pose_blocks
 
 
@@ -134,31 +133,6 @@ class DyKVRuntime:
                 target_device=target_device,
                 frame_tokens=frame_tokens,
             )
-        elif self.config.packing_mode.startswith("predecessor_"):
-            packing_plan = build_predecessor_retrieval_plan(
-                bank,
-                ranked_candidates,
-                distances,
-                current_viewmats=current_viewmats,
-                current_Ks=current_Ks,
-                frame_tokens=frame_tokens,
-                memory_frames=self.config.memory_frames,
-                sink_frames=self.config.sink_frames,
-                include_tail_latents=self.config.packing_mode in {
-                    "predecessor_chunks_and_latents",
-                    "predecessor_query_backfill",
-                },
-                query_backfill=(
-                    self.config.packing_mode == "predecessor_query_backfill"
-                ),
-            )
-            payloads = materialize_packed_retrieval(
-                bank,
-                packing_plan,
-                target_device=target_device,
-                frame_tokens=frame_tokens,
-            )
-            selected = list(packing_plan.selected_full_blocks)
         elif self.config.packing_mode != "none":
             packing_plan = build_packed_retrieval_plan(
                 bank,
@@ -226,18 +200,6 @@ class DyKVRuntime:
                 "kept_columns_per_frame": diagnostics.get("kept_columns_per_frame", []),
                 "delta_yaw_degrees": diagnostics.get("delta_yaw_degrees", []),
                 "horizontal_fov_degrees": diagnostics.get("horizontal_fov_degrees", []),
-                "predecessor_frame_starts": diagnostics.get(
-                    "predecessor_frame_starts", []
-                ),
-                "incremental_yaw_degrees": diagnostics.get(
-                    "incremental_yaw_degrees", []
-                ),
-                "incremental_fov_ratios": diagnostics.get(
-                    "incremental_fov_ratios", []
-                ),
-                "query_backfill_tokens": diagnostics.get(
-                    "query_backfill_tokens", []
-                ),
                 "packing_mode": self.config.packing_mode,
                 "selected_tail_frame_ids": diagnostics.get(
                     "selected_tail_frame_ids", []

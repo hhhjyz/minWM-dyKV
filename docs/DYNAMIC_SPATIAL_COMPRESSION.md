@@ -14,10 +14,6 @@
 本实现不增加连续数值型公开超参数。启用 dyKV 后默认从 `viewmats` 和相机内参 `Ks`
 推导所有几何量；消融只使用注册好的有限 case 枚举，而不是重新暴露阈值和权重。
 
-后续实现的 predecessor 路径没有替换本模块，而是作为三个独立 case 共存：检索仍参考
-当前 query，但压缩参考候选块的前驱 chunk，并使用四档大小。其完整定义见
-[`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。
-
 ## 2. MBench-A 目前有哪些运动
 
 这里必须区分“数据规范允许的运动”和“当前官方任务清单中实际分配的 case”。统计基于：

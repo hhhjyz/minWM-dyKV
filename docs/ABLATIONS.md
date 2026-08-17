@@ -25,12 +25,8 @@ token 仍不得超过 8 个完整 latent。
 | A13 | `retr8_compression_r050` | 8 源帧、anchor + `r=1/2` | 相同覆盖下固定压缩的信息损失 |
 | A14 | `retr12_compression_r050` | 12 源帧、anchor + `r=1/2` | 相同压缩率下增加一个 chunk 的收益 |
 | A15 | `retr16_compression_r033` | 16 源帧、anchor + `r=1/3` | 等 8 帧物理预算下覆盖两倍历史 |
-| A16 | `predecessor_chunks` | 当前-query 检索 + 前驱增量四档压缩 | 隔离“相对前驱保留新信息”的收益 |
-| A17 | `predecessor_chunks_latent` | A16 + 单 latent 尾部补齐 | 测量不完整 chunk 余量的收益 |
-| A18 | `predecessor_query_backfill` | A17 + 当前 query 可见列回填 | 推荐完整方案；检查相关性回填能否减少错误遗忘 |
-
-为兼容已有命令，未指定 case 的 dyKV 推理默认 A3；当前推荐完整方案是 A18。A0--A3、
-A1-W、A11--A18 均可由 `run_dykv_cases.sh` 一键运行。
+为兼容已有命令，未指定 case 的 dyKV 推理默认 A3。A0--A3、A1-W、A11--A15 均可由
+`run_dykv_cases.sh` 一键运行。
 
 A1 与 A1-W 具有相同候选集合、缓存布局、token 预算、填充顺序和 RoPE，只分别使用 FOV
 overlap 与 WorldKV 平均位姿得分。原 WorldKV 仓库中其他不一致项没有混入该消融，详见
@@ -39,12 +35,6 @@ overlap 与 WorldKV 平均位姿得分。原 WorldKV 仓库中其他不一致项
 A1/A13/A14/A15 对应 minWM-back 的固定预算 A--D。A1 与 A15 物理 retrieval token
 完全相同；A13 与 A14 使用相同 `r=1/2`。详细预算见
 [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)。
-
-当前版本已让 dyKV 相机位姿保持 FP32，只在 PRoPE 算子内转换模型计算副本，修复了旧版
-BF16 位姿无法通过 `1e-4` 纯 yaw 检查的问题。已有 predecessor 视频仍是 50% novelty
-fallback，不能记为 A16--A18 四档消融；必须重新生成并从 `dykv_summaries.jsonl` 核验
-`compression_modes`、`incremental_fov_ratios` 和 `keep_tiers`。完整流程和验收方法见
-[`RETRIEVAL_ROTATION_COMPRESSION_FLOW.md`](RETRIEVAL_ROTATION_COMPRESSION_FLOW.md)。
 
 ### 公平比较方式
 
@@ -121,10 +111,8 @@ retrieval 帧预算相同。
 - 峰值显存、CPU 无损记忆库字节数；
 - 左/右方向、yaw 分桶和四个 subset 的分组结果。
 
-主结论至少同时报告 A0、A1、A1-W、A3、A16、A17、A18，不能只报告兼容默认或只报告新方法。
+主结论至少同时报告 A0、A1、A1-W、A3、A11--A15，不能只报告兼容默认或只报告新方法。
 A4--A10 与 R0--R3 用来解释机制，不应在观察结果后只选择有利的子集报告。
 
 动态压缩后用空余 token 容量装入更多 chunk，以及对应的 E0--E6 消融，见
 [`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md)。
-前驱增量的 P0--P2 可运行对照及诊断字段见
-[`PREDECESSOR_INCREMENTAL_COMPRESSION.md`](PREDECESSOR_INCREMENTAL_COMPRESSION.md)。

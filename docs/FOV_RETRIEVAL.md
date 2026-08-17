@@ -33,8 +33,8 @@ top    = atan(-cy / fy)          bottom = atan((1 - cy) / fy)
 
 检索块时，将每个当前帧分别与历史块的首帧位姿和中间帧位姿比较。先对这两个距离取平均，
 再对所有当前帧取平均。选择器同时返回两种结果：按源帧预算截断且已恢复时间顺序的列表，
-供非扩容和固定 WorldKV case 使用；以及完整的距离排序，供 `packed_chunks*` 和
-`predecessor_*` 在 8-latent **物理 token 预算**内重新装入更多压缩历史。因而扩容 case
+供非扩容和固定 WorldKV case 使用；以及完整的距离排序，供 `packed_chunks*` 在
+8-latent **物理 token 预算**内重新装入更多压缩历史。因而扩容 case
 不是只对最前面的 8 个源 latent 做裁剪。
 
 ## 确定性探针

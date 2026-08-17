@@ -39,14 +39,14 @@ MBench 的长度指解码后视频帧数。Wan VAE 在时间维度上放大 4 �
 40 latent 帧（解码后 157 帧），官方 25 秒/401 帧条件采用 100 latent 帧（解码后
 397 帧）。默认运行器使用 100；基准报告中必须注明这一小段时长差异。
 
-## 十三组 Case 的统一生成与打包
+## 十组 Case 的统一生成与打包
 
 推荐使用统一 runner；它只准备一次 MBench 输入，然后依次生成选中的 case 并分别打包：
 
 ```bash
 MBENCH_ROOT=/absolute/path/to/MBench-A-Setup \
 ASSIGNMENTS=/absolute/path/to/official/samples.jsonl \
-CASES=baseline,retrieval_no_compression,worldkv_pose_no_compression,fixed_novelty,yaw_intrinsics,packed_chunks,packed_chunks_latent,predecessor_chunks,predecessor_chunks_latent,predecessor_query_backfill,retr8_compression_r050,retr12_compression_r050,retr16_compression_r033 \
+CASES=baseline,retrieval_no_compression,worldkv_pose_no_compression,fixed_novelty,yaw_intrinsics,packed_chunks,packed_chunks_latent,retr8_compression_r050,retr12_compression_r050,retr16_compression_r033 \
 OUTPUT_ROOT=output/mbench_dykv_cases \
 NUM_OUTPUT_FRAMES=100 \
 SEED=0 \
@@ -65,9 +65,6 @@ NUM_OUTPUT_FRAMES=100 \
 SEED=0 \
 bash Wan21/scripts/inference/run_mbench_dykv.sh
 ```
-
-该兼容脚本不代表最新 predecessor 完整方案。运行
-`predecessor_query_backfill` 应使用上一节统一 runner 并显式设置 `CASES`。
 
 运行前应先执行 `conda activate minwm-fa`。可用筛选项包括 `SUBSETS`、`CONDITIONS` 和
 `LIMIT`。若省略 `ASSIGNMENTS`，适配器使用 MBench-A 官方任务来源
