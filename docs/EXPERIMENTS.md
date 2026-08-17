@@ -45,8 +45,8 @@ conda activate minwm-fa
 | B8-slot | `retr16_r033_slot_packed` | B8 相同 payload，按 virtual slot 排列 | source/slot 排列诊断 | 2 个典型样本已生成，未评分 |
 | B9-capped | `motion_novelty_slot_capped` | 连续比例 + novelty，单槽受限 | flat packing 的 fragmentation 消融 | 2 个典型样本已生成，未评分 |
 | B9 | `motion_novelty_unfilled` | 连续 FOV keep ratio + WorldKV novelty，允许欠填 | 验证连续比例基础方法 | 2 个典型样本已生成，未评分 |
-| B10 | `motion_novelty_backfill` | B9 相同基础计划 + 补回未选唯一 token | 隔离真实额外信息与欠填影响 | 已实现、待生成 |
-| B11 | `motion_novelty_duplicate` | B9 相同基础计划 + 重复最高相关 chunk 源 token | 隔离满长度/attention 重加权影响 | 已实现、待生成 |
+| B10 | `motion_novelty_backfill` | B9 相同基础计划 + 补回未选唯一 token | 隔离真实额外信息与欠填影响 | checkpoint 冒烟通过，待评分 |
+| B11 | `motion_novelty_duplicate` | B9 相同基础计划 + 重复最高相关 chunk 源 token | 隔离满长度/attention 重加权影响 | checkpoint 冒烟通过，待评分 |
 
 ### 连续比例对照约束
 
@@ -115,8 +115,8 @@ B1 正式质量指标已经完成，核心结果表仍保持“待运行”。
 | `308fa58` | B8-slot | 2 | 0 | 100 latent | 未评分 | 未记录 | 未记录 | A100 80GB；布局诊断 |
 | `1386370` | B9-capped | 2 | 0 | 100 latent | 未评分 | 未记录 | 未记录 | A100 80GB；单槽限制 |
 | `1386370` | B9 | 2 | 0 | 100 latent | 未评分 | 未记录 | 未记录 | A100 80GB；flat 欠填 |
-| 待运行 | B10 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 补回唯一 token |
-| 待运行 | B11 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 重复 token 诊断 |
+| `caf7ed0` | B10 | 2 | 0 | 24 latent | 未评分 | 未记录 | 未记录 | A100 80GB；唯一回填冒烟 |
+| `caf7ed0` | B11 | 1 | 0 | 100 latent | 未评分 | 未记录 | 325.76 s | A100 80GB；重复诊断冒烟 |
 
 禁止用估计值替换“待运行”，表中只记录实测结果。
 
@@ -132,6 +132,19 @@ prompt 初始噪声指纹一致。输出位于
 比例全部一致；40/40 的 slot load 不同。B9 的单槽最大 load 达 1875 token，确实跨越
 `F=1560` 的 virtual-slot 边界；capped 最大为 1560。三组尚未运行 MBench 质量评分，因此该
 记录只证明 runner、真实 checkpoint 路径和布局单变量成立，不构成质量结论。
+
+### 2026-08-18：A17/A18 填充策略冒烟
+
+在 commit `caf7ed0` 和 GPU 2（A100 80GB）上运行真实 checkpoint。A17 使用 2 条 24-latent
+普通 prompt，每条产生 1 个 retrieval event；2/2 的 `final_tokens_total` 均等于
+`fill_target_tokens=12480`，唯一回填为 7800 token、重复为 0、最大源 token multiplicity 为
+1。A18 使用 1 条 100-latent MBench prompt，共产生 20 个 retrieval event；20/20 均填至
+12480 token，唯一回填为 0，重复 token 数随事件为 1230--6855，且每次只使用最高相关的
+1 个 chunk 作为重复源，最大 multiplicity 为 2--5。
+
+产物位于 `output/motion_fill_smoke_seed0/{motion_novelty_backfill,motion_novelty_duplicate}`。
+这些结果验证了真实模型上的长度、唯一性、重复来源和 source-ordered flat 布局，不是质量
+评分；B10/B11 正式对比仍需使用相同 prompt、轨迹和 seed 成对生成。
 
 ## 实现冒烟测试
 

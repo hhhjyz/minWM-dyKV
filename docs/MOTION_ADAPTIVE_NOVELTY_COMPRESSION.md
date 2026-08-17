@@ -2,7 +2,7 @@
 
 > 状态：连续 FOV motion planner、source-order/flat payload、单槽限制消融，以及 A16--A18
 > 均已实现并注册。capped/A16 已完成两个 MBench 典型样本的真实 checkpoint 生成但尚未评分；
-> A17/A18 尚未生成 MBench 结果。
+> A17/A18 的真实 checkpoint 冒烟也已通过，但尚未进行成对 MBench 质量评分。
 
 ## 1. 目标
 
@@ -512,6 +512,11 @@ flat 跨边界会放宽单槽容量，可能改变 temporal position density，�
 冒烟：capped 与 flat 的 selected blocks、基础 token 数和比例 40/40 一致，slot load 40/40
 不同；flat 单槽最大为 1875，capped 最大为 1560。视频尚未评分，因此这里只确认单变量与
 实现路径，不宣称质量优劣。详细运行记录见 [`EXPERIMENTS.md`](EXPERIMENTS.md)。
+
+A17/A18 也已完成真实 checkpoint 冒烟。A17 的 2 个短序列 event 均以唯一 token 填至
+12480，multiplicity 为 1；A18 的 1 个 100-latent 样本包含 20 个 event，全部填至 12480，
+只重复最高相关 chunk，最大 multiplicity 为 2--5。该验证覆盖实现不变量，但两者使用的
+样本长度不同，不能用于质量或速度横向结论。
 
 ### 13.3 公平性要求
 
