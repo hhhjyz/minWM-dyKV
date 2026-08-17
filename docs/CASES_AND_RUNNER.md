@@ -34,6 +34,17 @@
 固定 WorldKV A--D 的预算公式、与旧实现的差异及运行方式见
 [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)。
 
+### 计划中、尚不可运行的连续比例 Case
+
+下一阶段计划增加 `motion_novelty_unfilled`、`motion_novelty_backfill` 和
+`motion_novelty_duplicate`。三者都使用 chunk 内 anchor-relative 连续 FOV 新增比例决定
+每帧 token 数，再用 WorldKV novelty 决定具体 token；区别是剩余预算分别保持空闲、补回
+尚未选择的唯一 token、或重复最高 query-relevance chunk 的已选源 token。完整实现契约见
+[`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
+
+这三个名称当前没有注册到 `Wan21/dykv_cases.py`，也不能传给 runner。只有实现、单元测试和
+runtime 冒烟完成后，才能移入上面的“当前 Case”表和运行命令。
+
 可随时列出注册表：
 
 ```bash

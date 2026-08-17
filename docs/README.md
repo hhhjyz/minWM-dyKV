@@ -48,6 +48,7 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - [`RETRIEVAL_NO_COMPRESSION_DIAGNOSIS.md`](RETRIEVAL_NO_COMPRESSION_DIAGNOSIS.md)：典型样本最后六个 chunk 的无压缩检索日志、预算/RoPE 检查及低于 baseline 的策略原因分析；
 - [`DYNAMIC_SPATIAL_COMPRESSION.md`](DYNAMIC_SPATIAL_COMPRESSION.md)：基于相机视场的动态空间 token 裁剪、MBench 适合性与实施计划；
 - [`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md)：压缩后扩充历史 chunk、latent 尾部补齐与可变载荷 RoPE 方案；
+- [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)：连续 FOV 保留比例、WorldKV novelty 选择，以及欠填、唯一 token 补回和重复 token 三组计划消融；当前仅完成设计，尚未实现注册；
 - [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)：minWM-back 固定压缩率与 chunk 数 A--D 对照；
 - [`ABLATIONS.md`](ABLATIONS.md)：动态压缩、检索与几何设计的消融实验矩阵；
 - [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)：十个可运行 case 与普通/MBench 统一 runner；

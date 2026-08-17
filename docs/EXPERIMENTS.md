@@ -44,6 +44,18 @@ conda activate minwm-fa
 | B7 | `retr12_compression_r050` | 12 源帧、固定 `r=1/2` | 同比例下扩充 chunk 的收益 | 待运行 |
 | B8 | `retr16_compression_r033` | 16 源帧、固定 `r=1/3` | 与 8 帧不压缩严格等 token 对比 | 待运行 |
 
+### 已设计、尚未实现的连续比例对照
+
+| 运行编号 | 计划 Case | 方法 | 目的 | 状态 |
+| --- | --- | --- | --- | --- |
+| B9 | `motion_novelty_unfilled` | 连续 FOV keep ratio + WorldKV novelty，允许欠填 | 验证连续比例基础方法 | 设计完成，待实现 |
+| B10 | `motion_novelty_backfill` | B9 相同基础计划 + 补回未选唯一 token | 隔离真实额外信息与欠填影响 | 设计完成，待实现 |
+| B11 | `motion_novelty_duplicate` | B9 相同基础计划 + 重复最高相关 chunk 源 token | 隔离满长度/attention 重加权影响 | 设计完成，待实现 |
+
+B9--B11 当前不能由 runner 执行。三者必须共享候选排名、selected chunk、基础比例与基础
+token；B10/B11 还必须对齐最终 token 数和每槽 load。设计、日志和判读契约见
+[`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
+
 以上 case 均可由 `Wan21/scripts/inference/run_dykv_cases.sh` 统一运行。固定 FOV 与混合
 FOV 消融已移除；FOV 路径统一使用相机内参，B1-W 则明确只使用 WorldKV 外参位姿得分。定义见
 [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)。
@@ -103,6 +115,9 @@ B1 正式质量指标已经完成，核心结果表仍保持“待运行”。
 | 待运行 | B6 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 8 帧固定 1/2 |
 | 待运行 | B7 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 12 帧固定 1/2 |
 | 待运行 | B8 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 16 帧固定 1/3 |
+| 待实现 | B9 | — | — | — | — | — | — | 连续比例，允许欠填 |
+| 待实现 | B10 | — | — | — | — | — | — | 补回唯一 token |
+| 待实现 | B11 | — | — | — | — | — | — | 重复 token 诊断 |
 
 禁止用估计值替换“待运行”，表中只记录实测结果。
 

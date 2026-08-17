@@ -62,6 +62,20 @@ A4--A7、A9--A10 只作为后续内部实验设计，避免重新制造大量公
 混合 FOV 消融已经删除：所有 FOV case 强制使用相机内参，不再将固定角度作为研究变量；
 A1-W 是另一种不使用 FOV 的 WorldKV 外参位姿检索，不属于固定角度 FOV 回退。
 
+### 连续比例与剩余预算消融
+
+以下三组已经完成设计，但尚未实现或注册：
+
+| 编号 | 计划 Case | 固定变量 | 唯一变量 | 目的 |
+| --- | --- | --- | --- | --- |
+| A16 | `motion_novelty_unfilled` | query FOV 排名、连续 keep ratio、基础 novelty token | 剩余空间保持空闲 | 测量连续比例基础效果 |
+| A17 | `motion_novelty_backfill` | 与 A16 相同的候选、selected chunk、基础 token 和 slot | 补回未选择的唯一 token | 判断真实额外信息是否弥补欠填损失 |
+| A18 | `motion_novelty_duplicate` | 与 A16 相同基础计划；与 A17 相同最终长度和 slot load | 重复最高相关 chunk 的已选源 token | 判断提升是否来自满长度或 attention 重加权 |
+
+A18 不增加唯一历史覆盖，只是诊断重复内容对 softmax attention mass 的影响。三组的连续
+比例、reference layout、日志断言和结果解释见
+[`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
+
 ## 4. 检索与压缩解耦消融
 
 动态裁剪作用于“已经被选中的历史块”，因此还应确认收益不是 FOV 检索独自产生：
@@ -92,7 +106,7 @@ retrieval 帧预算相同。
 
 | 轨迹 | 预期行为 | 验证点 |
 | --- | --- | --- |
-| 0° 静止 | A3 保留全部；A16--A18 使用 1/4 novelty 安全下限 | 分别验证两种已注册语义 |
+| 0° 静止 | A3 保留全部；计划中的 A16--A18 得到连续 `q=0`，仅保留 chunk anchor | 验证无隐式最低比例，并观察动态物体风险 |
 | 半个实际 FOV | 约保留一半水平角域 | 左右 mask 应互为镜像 |
 | 一个实际 FOV | 无水平交集 | 历史块应从载荷中移除 |
 | 360° | 回到等价朝向 | 角度回绕后应保留全部列 |
@@ -111,8 +125,11 @@ retrieval 帧预算相同。
 - 峰值显存、CPU 无损记忆库字节数；
 - 左/右方向、yaw 分桶和四个 subset 的分组结果。
 
-主结论至少同时报告 A0、A1、A1-W、A3、A11--A15，不能只报告兼容默认或只报告新方法。
+当前主结论至少同时报告 A0、A1、A1-W、A3、A11--A15，不能只报告兼容默认或只报告新方法。
 A4--A10 与 R0--R3 用来解释机制，不应在观察结果后只选择有利的子集报告。
+
+A16--A18 实现后必须作为一组共同报告，不能只选择表现最好的填充策略；A17/A18 必须同时
+报告唯一源 token 数、重复 multiplicity、实际 retrieval token 和每槽 load。
 
 动态压缩后用空余 token 容量装入更多 chunk，以及对应的 E0--E6 消融，见
 [`DYNAMIC_RETRIEVAL_PACKING.md`](DYNAMIC_RETRIEVAL_PACKING.md)。
