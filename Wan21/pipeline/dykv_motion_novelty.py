@@ -407,15 +407,19 @@ def build_motion_retrieval_plan(
         layout = FLAT_SOURCE_ORDERED_LAYOUT
 
     assigned_by_source = {frame.source_frame_id: frame for frame in assigned_frames}
-    assigned_chunks = tuple(
-        replace(
-            chunk,
-            frames=tuple(assigned_by_source[frame.source_frame_id] for frame in chunk.frames),
+    assigned_chunks = []
+    for chunk in selected:
+        anchor = assigned_by_source[chunk.frames[0].source_frame_id]
+        chunk_frames = tuple(
+            assigned_by_source.get(
+                frame.source_frame_id,
+                replace(frame, virtual_slot_id=anchor.virtual_slot_id),
+            )
+            for frame in chunk.frames
         )
-        for chunk in selected
-    )
+        assigned_chunks.append(replace(chunk, frames=chunk_frames))
     return MotionRetrievalPlan(
-        chunks=assigned_chunks,
+        chunks=tuple(assigned_chunks),
         selected_block_indices=tuple(chunk.block_index for chunk in selected),
         candidate_block_indices=all_candidates,
         geometry_invalid_block_indices=tuple(invalid),

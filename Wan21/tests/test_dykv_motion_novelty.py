@@ -185,6 +185,32 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
         self.assertEqual(payload["duplicate_tokens_total"], 0)
         self.assertTrue(bank.blocks[0].layers[0].k.equal(original))
 
+    def test_capped_plan_keeps_zero_length_frames_as_metadata_only(self):
+        bank = _bank([(0, 0, 0, 0)] * 3, frame_tokens=20)
+        plan = motion.build_motion_retrieval_plan(
+            bank,
+            (0, 1, 2),
+            (0.1, 0.2, 0.3),
+            probe_points=self.points,
+            radius=8.0,
+            frame_tokens=20,
+            memory_frames=8,
+            sink_frames=4,
+            slot_capped=True,
+        )
+        payload = motion.materialize_motion_retrieval(
+            bank,
+            plan,
+            target_device="cpu",
+            frame_tokens=20,
+        )[0]
+
+        self.assertEqual(len(plan.frames), 12)
+        self.assertEqual([frame.base_token_count for frame in plan.frames].count(0), 9)
+        self.assertTrue(all(frame.virtual_slot_id >= 4 for frame in plan.frames))
+        self.assertEqual(len(payload["source_frame_ids"]), 3)
+        self.assertEqual(payload["k"].shape[1], 60)
+
 
 if __name__ == "__main__":
     unittest.main()
