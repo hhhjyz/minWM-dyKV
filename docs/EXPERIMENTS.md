@@ -44,21 +44,22 @@ conda activate minwm-fa
 | B7 | `retr12_compression_r050` | 12 源帧、固定 `r=1/2` | 同比例下扩充 chunk 的收益 | 待运行 |
 | B8 | `retr16_compression_r033` | 16 源帧、固定 `r=1/3` | 与 8 帧不压缩严格等 token 对比 | 待运行 |
 | B8-slot | `retr16_r033_slot_packed` | B8 相同 payload，按 virtual slot 排列 | source/slot 排列诊断 | 2 个典型样本已生成，未评分 |
-| B9-capped | `motion_novelty_slot_capped` | 连续比例 + novelty，单槽受限 | flat packing 的 fragmentation 消融 | 2 个典型样本已生成，未评分 |
-| B9 | `motion_novelty_unfilled` | 连续 FOV keep ratio + WorldKV novelty，允许欠填 | 验证连续比例基础方法 | 2 个典型样本已生成，未评分 |
-| B10 | `motion_novelty_backfill` | B9 相同基础计划 + 补回未选唯一 token | 隔离真实额外信息与欠填影响 | checkpoint 冒烟通过，待评分 |
-| B11 | `motion_novelty_duplicate` | B9 相同基础计划 + 重复最高相关 chunk 源 token | 隔离满长度/attention 重加权影响 | checkpoint 冒烟通过，待评分 |
-| B12 | `motion_projected_unfilled` | 双向二维、多深度 projected overlap + WorldKV novelty | 修正各类相机运动的基础 token 比例 | 设计完成，尚未实现或注册 |
+| B9-S | `motion_novelty_sphere_unfilled` | 旧 sphere-FOV keep ratio + WorldKV novelty，允许欠填 | B9 的单变量旧几何对照 | 已实现并单测通过，待 checkpoint |
+| B9-capped | `motion_novelty_slot_capped` | projected 比例 + novelty，单槽受限 | flat packing 的 fragmentation 消融 | 已实现并单测通过；旧 sphere 产物不可复用 |
+| B9 | `motion_novelty_unfilled` | 双向二维、多深度 projected overlap + WorldKV novelty，允许欠填 | 验证新连续比例基础方法 | 已实现并单测通过；旧 sphere 产物不可复用 |
+| B10 | `motion_novelty_backfill` | B9 相同基础计划 + 补回未选唯一 token | 隔离真实额外信息与欠填影响 | 已实现并单测通过；需重跑 checkpoint |
+| B11 | `motion_novelty_duplicate` | B9 相同基础计划 + 重复最高相关 chunk 源 token | 隔离满长度/attention 重加权影响 | 已实现并单测通过；需重跑 checkpoint |
 
 ### 连续比例对照约束
 
-B9--B11 均可由 runner 执行。三者共享候选排名、selected chunk、基础比例与基础 token；
+B9-S--B11 均可由 runner 执行。B9--B11 共享候选排名、selected chunk、projected 基础比例与基础 token；
 B10/B11 还对齐最终 token 数和每槽 load。设计、日志和判读契约见
 [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
 
-B12 在第一阶段只替换 B9 的几何 token 数，必须保持 retrieval ranking、novelty、欠填协议和
-flat layout 不变。其 projected backfill/duplicate 版本只有在 B12 单变量验证通过后才实现；
-设计见 [`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)。
+B9-S 与 B9 只改变压缩率几何模式，必须保持 retrieval ranking、novelty、欠填协议和 flat
+layout 不变。旧 B9--B11 视频是在 sphere 语义下生成，不能当作当前同名 projected case 的
+结果；需要在当前 commit 上重新生成。设计见
+[`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)。
 
 以上 case 均可由 `Wan21/scripts/inference/run_dykv_cases.sh` 统一运行。固定 FOV 与混合
 FOV 消融已移除；FOV 路径统一使用相机内参，B1-W 则明确只使用 WorldKV 外参位姿得分。定义见

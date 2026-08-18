@@ -1,10 +1,12 @@
 # 基于双向图像投影的 Motion-Adaptive 压缩率
 
-> 状态：详细设计完成，尚未实现或注册 case。
+> 状态：核心几何、planner/runtime 集成、case 注册和单元测试已完成；真实 checkpoint 冒烟与
+> MBench 成对质量评测尚未运行。
 >
 > 本文是 [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)
-> 中连续 FOV 比例方法的几何第二版。当前代码仍使用有限球形探针的 FOV overlap；本文提出的
-> projected overlap 只有在代码、测试和真实 checkpoint 冒烟全部完成后才能成为默认方法。
+> 中连续比例方法的几何第二版。当前四个 `motion_novelty_*` 主 case 已使用 projected overlap；
+> 新增 `motion_novelty_sphere_unfilled` 保留旧有限球形方法，供单变量几何消融使用。这里的
+> “已实现”不等于模型质量已经验证。
 
 ## 1. 问题与目标
 
@@ -15,7 +17,7 @@
 WorldKV novelty：在该 token 数量内决定具体保留哪些 token
 ```
 
-需要替换的是第一部分。当前实现把当前相机和 chunk anchor 的视锥放入半径为 8 的球形探针
+被替换的旧实现把当前相机和 chunk anchor 的视锥放入半径为 8 的球形探针
 空间，用三维探针的交集比例近似二维 latent token 的视野重叠。该方法对纯 yaw 基本合理，
 但对平移尤其是前进运动存在明显偏差。
 
@@ -308,9 +310,9 @@ Projected overlap 只替换每帧 token 数计算，不修改：
 第一阶段只替换 compression ratio，保持检索算法固定以形成单变量实验；第二阶段再注册独立的
 projected retrieval case，不能在同一次提交中同时更换检索和压缩几何。
 
-## 10. 计划数据结构与接口
+## 10. 已实现的数据结构与接口
 
-建议新增独立模块：
+独立模块已实现为：
 
 ```text
 Wan21/pipeline/dykv_projected_overlap.py
@@ -344,9 +346,8 @@ def projected_motion_overlap(
     ...
 ```
 
-内部缓存 `(spatial_shape,K-signature)` 对应的二维 token center 和反投影射线，避免每个 layer
-重复构造。一个 retrieval event 的计划只在 layer 0 计算一次，所有 attention layer 共用 token
-索引和比例。
+内部按 `spatial_shape` 缓存二维 token center；一个 retrieval event 的计划只计算一次，所有
+attention layer 共用 layer-0 novelty 索引、几何比例和整数 token 数。
 
 配置只增加内部字段：
 
@@ -381,17 +382,18 @@ relative_translation_xyz
 
 ## 12. Case 与消融设计
 
-在实现验证前不修改现有 `motion_novelty_*` 的语义。建议先注册一个几何基础 case：
+实现选择了“直接升级现有 motion case，并保留一个旧几何对照”的方案：
 
 | Case | 历史选择 | 几何比例 | 剩余空间 | 目的 |
 | --- | --- | --- | --- | --- |
-| `motion_novelty_unfilled` | 当前 FOV retrieval | 旧 sphere overlap | 欠填 | 当前实现基线 |
-| `motion_projected_unfilled` | 与上行相同 | 双向二维多深度投影 | 欠填 | 单变量验证新比例 |
-| `motion_projected_backfill` | 与 projected-unfilled 相同 | 相同 | 唯一 token 回填 | 新几何下的填满主方法 |
-| `motion_projected_duplicate` | 与 projected-unfilled 相同 | 相同 | 重复最高相关 chunk | 长度/重加权诊断 |
+| `motion_novelty_sphere_unfilled` | 当前 FOV retrieval | 旧 sphere overlap | 欠填 | 旧几何对照 |
+| `motion_novelty_unfilled` | 与上行相同 | 双向二维多深度投影 | 欠填 | 单变量验证新比例 |
+| `motion_novelty_backfill` | 与 unfilled 相同 | 相同 | 唯一 token 回填 | 新几何下的填满主方法 |
+| `motion_novelty_duplicate` | 与 unfilled 相同 | 相同 | 重复最高相关 chunk | 长度/重加权诊断 |
+| `motion_novelty_slot_capped` | 与 unfilled 相同 | 相同 | 单槽容量限制、欠填 | flat/capped 布局消融 |
 
-第一轮几何实验只比较前两行。只有 projected-unfilled 的动作对称性、速度单调性和真实模型
-冒烟通过后，才实现 backfill/duplicate；不能一开始同时更改几何和填充策略。
+第一轮几何归因只比较前两行。后面三个 case 已接入相同 projected planner，但不能拿它们与
+sphere-unfilled 直接归因几何收益，因为填充或布局也发生了变化。
 
 ### 12.1 单一尺度敏感性
 
@@ -438,7 +440,7 @@ a@0.5*3, a@1*3, a@2*3, a@4*3
 
 ### 13.2 Planner 公平性
 
-旧 sphere case 与 projected case 的下列字段必须相同：
+`motion_novelty_sphere_unfilled` 与 `motion_novelty_unfilled` 的下列字段必须相同：
 
 ```text
 candidate_block_ids
@@ -465,7 +467,7 @@ slot loads
 按以下顺序：
 
 1. 每类 action 一个 24-latent prompt，检查至少一次 retrieval event；
-2. MBench typical-8，比较旧 sphere 与 projected-unfilled；
+2. MBench typical-8，比较 sphere-unfilled 与 projected unfilled；
 3. loop-closure 10s 的 30 个 prompt，按旋转、平移、混合运动分组；
 4. 通过后再运行 15s/20s/30s；
 5. 最终质量报告必须同时给出 token 数、峰值显存和 retrieval latency。
@@ -481,17 +483,16 @@ slot loads
 6. `ceil(qF)` 会让任何严格正比例至少保留一个 token，但这只是整数载荷要求，不是比例量化；
 7. 匀速纯 action 在不同 chunk 重复同一压缩模板是正确结果，不能误判为 planner 没有动态运行。
 
-## 15. 实现与提交顺序
+## 15. 实现与提交记录
 
 每个模块单独提交并推送：
 
-1. `Add bidirectional projected motion overlap`
-   - 二维网格、完整旋转、单深度双向投影和几何测试；
-2. `Add multidepth translation compression ratios`
-   - 单一 scene scale、多深度聚合、所有 action 与速度测试；
-3. `Add projected motion novelty retrieval case`
-   - `motion_projected_unfilled`、planner/runtime 日志和公平性测试；
-4. `Validate projected motion compression on checkpoint`
-   - 24-latent action 冒烟、typical-8 和 loop-closure 记录；
-5. `Add projected fill strategy ablations`
-   - 只有基础 case 通过后再增加 backfill/duplicate。
+1. `029b200 Add bidirectional projected motion overlap`（已完成并推送）
+   - 二维 token 网格、完整 `R,t,K`、四个固定深度、双向调和 overlap 和 7 个几何测试；
+2. `64007e1 Use projected geometry for motion novelty cases`（已完成并推送）
+   - 现有四个 motion case 接入 projected planner；新增 sphere-unfilled 对照；补齐配置、manifest、
+     event 诊断和 case 公平性测试；dyKV 测试共 88 项通过；
+3. 文档同步（本次提交）
+   - case 表、消融矩阵、实验状态和运行方式；
+4. `Validate projected motion compression on checkpoint`（待完成）
+   - 各 action 24-latent 冒烟、typical-8、loop-closure 10s，再逐步扩展到 15s/20s/30s。

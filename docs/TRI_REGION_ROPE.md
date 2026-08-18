@@ -73,7 +73,7 @@ chunk 假设固定长度：每个压缩 frame segment 显式携带 `source_frame
 
 `retrieval_layout` 定义三种明确协议：旧 payload 缺省为 `slot_packed`，要求 slot 顺序且每槽
 不超过一个完整 latent；现有装箱 case 使用 `source_ordered`，允许 slot 非单调但仍保留单槽
-容量；后续连续 motion case 使用 `flat_source_ordered`，只保留 `8F` 总预算和 slot 范围。
+容量；当前连续 motion case 使用 `flat_source_ordered`，只保留 `8F` 总预算和 slot 范围。
 在 flat 布局中，一个 frame segment 的物理区间可以跨过 `F` 的整数倍，但整个 segment 仍只
 使用一个 virtual slot，不会被赋予两种时间语义。空间高/宽 RoPE 通道始终不变。
 

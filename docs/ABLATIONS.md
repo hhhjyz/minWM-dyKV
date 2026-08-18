@@ -26,8 +26,9 @@ token 仍不得超过 8 个完整 latent。
 | A14 | `retr12_compression_r050` | 12 源帧、anchor + `r=1/2` | 相同压缩率下增加一个 chunk 的收益 |
 | A15-slot | `retr16_r033_slot_packed` | 与 A15 相同，按 virtual slot 排列 | 验证 slot/source 排列等价性 |
 | A15 | `retr16_compression_r033` | 16 源帧、anchor + `r=1/3` | 等 8 帧物理预算下覆盖两倍历史 |
-| A16-capped | `motion_novelty_slot_capped` | 连续 FOV 比例 + novelty，单槽容量受限 | 隔离 bin fragmentation 的影响 |
-| A16 | `motion_novelty_unfilled` | 连续 FOV 比例 + novelty，flat 总预算 | 动态压缩基础效果 |
+| A16-S | `motion_novelty_sphere_unfilled` | 旧 sphere-FOV 比例 + novelty，flat 总预算 | A16 的单变量旧几何对照 |
+| A16-capped | `motion_novelty_slot_capped` | projected 比例 + novelty，单槽容量受限 | 隔离 bin fragmentation 的影响 |
+| A16 | `motion_novelty_unfilled` | projected 比例 + novelty，flat 总预算 | 动态压缩基础效果 |
 | A17 | `motion_novelty_backfill` | A16 基础计划 + 唯一 token 回填 | 区分真实额外信息与欠填影响 |
 | A18 | `motion_novelty_duplicate` | A16 基础计划 + 最高相关 chunk token 重复 | 诊断满长度/attention 重加权影响 |
 为兼容已有命令，未指定 case 的 dyKV 推理默认 A3。A0--A3、A1-W、A11--A15 均可由
@@ -85,19 +86,19 @@ A18 不增加唯一历史覆盖，只是诊断重复内容对 softmax attention 
 比例、reference layout、日志断言和结果解释见
 [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
 
-### 计划中的二维投影几何消融
+### 已实现的二维投影几何消融
 
-当前 sphere overlap 在标准 minWM 步长下会让 `w` 前进运动的三个 non-anchor 全部得到零
-token，并且依赖固定球半径表达平移。计划增加以下单变量几何对照；当前尚未实现或注册：
+旧 sphere overlap 在标准 minWM 步长下会让 `w` 前进运动的三个 non-anchor 全部得到零
+token，并且依赖固定球半径表达平移。当前注册了以下单变量几何对照：
 
-| 编号 | 计划 Case | 固定变量 | 唯一变量 | 目的 |
+| 编号 | Case | 固定变量 | 唯一变量 | 目的 |
 | --- | --- | --- | --- | --- |
-| A19 | `motion_projected_unfilled` | A16 的 retrieval、novelty、欠填和 flat layout | sphere overlap → 双向二维多深度投影 | 修正 yaw/pitch/roll、平移和混合运动的 token 比例 |
-| A20 | `motion_projected_backfill` | A19 的几何、候选和基础 token | 补回唯一 token | 验证新几何下真实额外信息的收益 |
-| A21 | `motion_projected_duplicate` | A19 的几何和基础 token；与 A20 对齐长度 | 重复最高相关 chunk token | 隔离长度和 attention 重加权 |
+| A16-S | `motion_novelty_sphere_unfilled` | A16 的 retrieval、novelty、欠填和 flat layout | 旧 sphere-FOV | 保留旧压缩率作为对照 |
+| A16 | `motion_novelty_unfilled` | 与 A16-S 相同 | 双向二维多深度投影 | 修正 yaw/pitch/roll、平移和混合运动的 token 比例 |
 
-A19 必须先独立验证；A20/A21 不能与几何替换同时实现并直接用于质量归因。完整公式、动作分类、
-深度尺度和验收条件见 [`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)。
+A16-S/A16 是几何主对照。A17/A18 已使用 projected 几何，但同时改变填充策略，不能替代这组
+几何归因。完整公式、动作分类、深度尺度和验收条件见
+[`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)。
 
 ## 4. 检索与压缩解耦消融
 

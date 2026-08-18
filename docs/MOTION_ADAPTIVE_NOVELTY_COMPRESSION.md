@@ -1,13 +1,13 @@
-# 连续 FOV 比例驱动的 WorldKV Novelty 压缩
+# 连续运动几何比例驱动的 WorldKV Novelty 压缩
 
-> 状态：连续 FOV motion planner、source-order/flat payload、单槽限制消融，以及 A16--A18
-> 均已实现并注册。capped/A16 已完成两个 MBench 典型样本的真实 checkpoint 生成但尚未评分；
-> A17/A18 的真实 checkpoint 冒烟也已通过，但尚未进行成对 MBench 质量评分。
+> 状态：连续 motion planner、source-order/flat payload、单槽限制消融，以及 A16--A18
+> 均已实现并注册。四个主 case 的压缩率几何现已升级为双向二维多深度投影，并增加
+> `motion_novelty_sphere_unfilled` 旧几何对照；新语义已单测通过，尚未进行真实 checkpoint
+> 成对质量评分。
 >
-> 当前球形 FOV overlap 对平移，尤其是 forward motion，存在单向视锥包含和场景尺度偏差。
-> 计划中的双向二维、多深度改进见
-> [`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)；该设计尚未实现，不改变
-> 本文现有 case 的语义。
+> 旧的 capped/A16/A17/A18 视频是在 sphere-FOV 语义下生成，不能作为当前同名 projected case
+> 的结果。几何实现与验证边界见
+> [`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)。
 
 ## 1. 目标
 
@@ -15,7 +15,7 @@
 WorldKV 的 anchor/novelty 相似度只回答具体保留哪些 token。几何结果不再直接生成水平列、
 矩形区域或其他空间裁剪 mask。
 
-每个四 latent chunk 固定使用第 0 帧作为完整 anchor。后三帧分别相对 anchor 计算连续 FOV
+每个四 latent chunk 固定使用第 0 帧作为完整 anchor。后三帧分别相对 anchor 计算连续几何
 新增比例，并据此得到不同的连续保留率。被逐出的 CPU KV bank 始终无损；比例计算、token
 选择、packing、补回或重复都只发生在 retrieval materialization 阶段。
 
@@ -73,19 +73,22 @@ Pi = 第 i 个非 anchor latent，i=1,2,3
 二者不能混用。A17/A18 中“最高相似度 chunk”始终指最高 `retrieval_similarity` 的已选
 chunk，而不是 anchor-token cosine 最大的 chunk。
 
-### 3.2 连续 FOV 保留率
+### 3.2 连续几何保留率
 
-对每个非 anchor latent，调用已有的确定性 FOV overlap，并把该 latent 放在分母一侧：
+当前主 case 对每个 non-anchor latent 调用双向二维、多深度 projected overlap：
 
 ```text
-o_i = FOVOverlap(current=Pi, historical=P0, current_K=Ki, historical_K=K0)
+o_i = ProjectedOverlap(Pi, P0, Ki, K0, spatial_shape, scene_scale=8)
 q_i = clamp(1 - o_i, 0, 1)
 n_i = min(F, max(0, ceil(q_i * F)))
 ```
 
-`o_i` 估计 `Pi` 当前视野中被 anchor 视野覆盖的比例，所以 `1-o_i` 是该 latent 相对 anchor
-的新增视野比例。FOV overlap 同时响应旋转、位移和内参变化，但位移效果仍依赖确定性探针
-使用的有限半径；当前 `fov_radius=8` 是隐含的场景尺度假设，不等价于真实深度感知投影。
+`o_i` 是当前→anchor 与 anchor→当前在四个固定深度上的调和 overlap 均值；完整 `R,t,K`
+一次处理旋转、位移、内参变化及混合运动。平移仍无法脱离深度先验，当前用唯一场景尺度
+`projection_scene_scale=8` 展开为 `[1,2,4,8]` 四个固定积分深度。
+
+`motion_novelty_sphere_unfilled` 使用旧 `FOVOverlap` 计算同一个 `o_i`，但其 retrieval、novelty、
+预算、flat layout 和欠填协议与 A16 相同。它只用于隔离几何变化，不是新的推荐方法。
 
 当相机不动时允许 `q_i=0` 和 `n_i=0`。这意味着静止相机下后三帧可能全部被删除，只保留
 anchor；动态物体造成的内容变化不会反映在几何比例中。这是本方法需要通过实验验证的核心
@@ -334,10 +337,9 @@ fill layout：
 统计负载。最终 payload 再按 source frame 重新排列；reference slot 标签随 segment 一起移动，
 不依赖 flat tensor 中的相邻关系。
 
-## 9. 计划数据结构
+## 9. 已实现的数据结构
 
-建议新建 `Wan21/pipeline/dykv_motion_novelty.py`，不要继续扩大已有通用 packing 文件中的
-case-specific 分支。
+实现位于 `Wan21/pipeline/dykv_motion_novelty.py`，未把 case-specific 分支并入通用 packing。
 
 ```text
 MotionFramePlan
@@ -377,20 +379,20 @@ MotionRetrievalPlan
 `omitted_indices_in_novelty_order` 只需保存在 planning 期间；事件日志不写完整索引列表，避免
 日志体积膨胀。正式 payload 继续提供 source frame、segment 长度与 virtual slot metadata。
 
-## 10. 计划代码改动
+## 10. 已实现代码
 
 | 文件 | 责任 |
 | --- | --- |
 | `Wan21/pipeline/dykv_motion_novelty.py` | 连续比例、novelty 排名、共同选择、unique backfill、duplicate plan |
 | `Wan21/pipeline/dykv_runtime.py` | 调用统一 planner；三个 case 共享候选排名；写事件诊断 |
 | `Wan21/pipeline/dykv_packing.py` | 现有 case 保持不变；计划 case 不复用其 per-slot bin 容量约束 |
-| `Wan21/dykv_cases.py` | 实现完成后注册 A16--A18；此前不注册 |
+| `Wan21/dykv_cases.py` | 注册 A16--A18、capped 与 sphere 几何对照 |
 | `Wan21/wan/modules/dykv_rope.py` | 为新 flat payload 保留总预算/slot 范围检查，允许非单调 slot metadata 与单槽统计超出 F |
-| `Wan21/scripts/inference/run_dykv_cases.sh` | 三个 case 可运行后再加入默认/显式清单 |
+| `Wan21/scripts/inference/run_dykv_cases.sh` | 五个 motion case 加入默认/显式清单 |
 | `Wan21/tests/test_dykv_motion_novelty.py` | 连续比例、唯一补回、重复与公平性回归 |
 
-CPU bank 仍保存无损 K/V，不增加 store-time 压缩，也不增加公开连续超参数。FOV 探针数和
-半径继续使用 dyKV 现有固定配置。
+CPU bank 仍保存无损 K/V，不增加 store-time 压缩，也不增加公开连续超参数。sphere 对照继续
+使用现有 FOV 探针数和半径；projected 主路径使用固定 `projection_scene_scale=8`。
 
 ## 11. 日志契约
 
@@ -488,6 +490,7 @@ A16 必须满足 `backfill=duplicate=0`；A17 必须满足 `duplicate=0` 且源 
 | `retr8_compression_r050` | 当前 query FOV | 固定 50% novelty | 5F | 同 8 源帧的固定比例内容压缩对照 |
 | `yaw_intrinsics` | 当前 query FOV | 几何列裁剪 | 欠填 | 精确几何位置对照 |
 | `packed_chunks_latent` | 当前 query FOV | 量化几何列裁剪 | 不超过 8F | 可变 segment/source-order 压力对照，不作主质量基线 |
+| A16-S `motion_novelty_sphere_unfilled` | 共同动态选择 | 旧 sphere 比例 novelty | 欠填 | A16 的单变量旧几何对照 |
 | `motion_novelty_slot_capped` | 共同动态选择 | 连续比例 novelty + 单槽装箱 | 欠填 | flat 布局的 fragmentation 消融 |
 | A16 `motion_novelty_unfilled` | 共同动态选择 | 连续比例 novelty | 欠填 | 新方法基础效果 |
 | A17 `motion_novelty_backfill` | 与 A16 相同 | 基础 + 唯一 token | 目标 8F | 真实额外信息的作用 |
@@ -513,12 +516,14 @@ flat 跨边界会放宽单槽容量，可能改变 temporal position density，�
 分配尽量一致。其外部主基线仍是 `retr16_compression_r033`；不能用已经删除的
 `fixed_novelty`，也不能只与 `packed_chunks_latent` 比较。
 
-该布局消融已在 2 个 MBench typical 样本、每个 20 次 retrieval event 上完成真实 checkpoint
+以下记录来自升级 projected 几何之前的旧 sphere-FOV commit，只验证当时的布局/填充基础设施，
+不能验证当前几何语义。布局消融曾在 2 个 MBench typical 样本、每个 20 次 retrieval event
+上完成真实 checkpoint
 冒烟：capped 与 flat 的 selected blocks、基础 token 数和比例 40/40 一致，slot load 40/40
 不同；flat 单槽最大为 1875，capped 最大为 1560。视频尚未评分，因此这里只确认单变量与
 实现路径，不宣称质量优劣。详细运行记录见 [`EXPERIMENTS.md`](EXPERIMENTS.md)。
 
-A17/A18 也已完成真实 checkpoint 冒烟。A17 的 2 个短序列 event 均以唯一 token 填至
+旧 sphere-FOV 版本的 A17/A18 也曾完成真实 checkpoint 冒烟。A17 的 2 个短序列 event 均以唯一 token 填至
 12480，multiplicity 为 1；A18 的 1 个 100-latent 样本包含 20 个 event，全部填至 12480，
 只重复最高相关 chunk，最大 multiplicity 为 2--5。该验证覆盖实现不变量，但两者使用的
 样本长度不同，不能用于质量或速度横向结论。
@@ -554,7 +559,7 @@ A17/A18 也已完成真实 checkpoint 冒烟。A17 的 2 个短序列 event 均�
 
 ## 14. 已知风险
 
-1. FOV overlap 对位移的连续比例依赖固定探针半径，不具备真实深度感知；
+1. projected overlap 对平移依赖固定多深度先验，仍不具备真实场景深度与遮挡感知；
 2. 相机静止但物体运动时 `q=0`，几何无法发现内容 novelty；
 3. stored K 已包含位置相关变换，anchor-centroid cosine 不一定是纯内容相似度；
 4. 放宽单 slot 容量后，同一 temporal RoPE 位置可能聚集超过 `F` 个 token，产生位置密度偏置；
@@ -579,3 +584,6 @@ A17/A18 也已完成真实 checkpoint 冒烟。A17 的 2 个短序列 event 均�
    - A18 重复池、目标 slot 对齐、multiplicity 测试；
 5. `Document motion novelty experiments`（已完成）
    - runner、case 文档、实验台账与正式命令。
+6. `Use projected geometry for motion novelty cases`（已完成）
+   - A16--A18/capped 改用 projected multi-depth；新增 sphere-unfilled 单变量对照；
+7. 真实 checkpoint 与 MBench 成对评测（待完成）。

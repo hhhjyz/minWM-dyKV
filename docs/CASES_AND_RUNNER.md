@@ -3,14 +3,14 @@
 ## 1. 设计原则
 
 所有可直接运行的对照都注册在 `Wan21/dykv_cases.py`。公开接口只增加一个枚举参数
-`--dykv-case`，每个 case 一次性确定压缩方式、检索 FOV 来源和裁剪 FOV 来源，不再暴露
+`--dykv-case`，每个 case 一次性确定压缩方式、检索评分和压缩几何，不再暴露
 彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink，并使用映射到
-`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，十四个 dyKV case
+`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，十五个 dyKV case
 使用连续的 `4+8+8`。
 
-## 2. 当前十五个 Case
+## 2. 当前十六个 Case
 
-| Case | Sink | dyKV | 检索方法 | 检索时压缩 | 裁剪 FOV | 用途 |
+| Case | Sink | dyKV | 检索方法 | 检索时压缩 | 压缩几何 | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `baseline` | 固定 4 | 关闭 | — | — | — | `4+0+16` tri-region RoPE，无长期检索 |
 | `retrieval_no_compression` | 固定 4 | 开启 | FOV overlap（相机 `K`） | 不压缩 | — | 隔离长期检索收益和最大开销 |
@@ -23,10 +23,11 @@
 | `retr12_compression_r050` | 固定 4 | 开启 | 相机 `K` | 3 chunk，anchor + `r=1/2` | — | minWM-back C：12 源帧压到 7.5 帧容量 |
 | `retr16_r033_slot_packed` | 固定 4 | 开启 | 相机 `K` | 与 D 相同，按 virtual slot 拼接 | — | D 的旧 slot-order 排列诊断 |
 | `retr16_compression_r033` | 固定 4 | 开启 | 相机 `K` | 4 chunk，anchor + `r=1/3` | — | minWM-back D：16 源帧压到 8 帧容量 |
-| `motion_novelty_slot_capped` | 固定 4 | 开启 | 相机 `K` | 连续 FOV token 数 + novelty，单槽受限 | — | flat 方法的 capped packing 消融 |
-| `motion_novelty_unfilled` | 固定 4 | 开启 | 相机 `K` | 连续 FOV token 数 + novelty，flat 欠填 | — | A16 动态压缩基础方法 |
-| `motion_novelty_backfill` | 固定 4 | 开启 | 相机 `K` | A16 基础计划 + 唯一 token 回填 | — | A17：测量真实额外信息的作用 |
-| `motion_novelty_duplicate` | 固定 4 | 开启 | 相机 `K` | A16 基础计划 + 最高相关 chunk token 重复 | — | A18：满长度/attention 重加权诊断 |
+| `motion_novelty_sphere_unfilled` | 固定 4 | 开启 | 相机 `K` | 旧 sphere-FOV token 数 + novelty，flat 欠填 | sphere-FOV | projected 几何的单变量旧方法对照 |
+| `motion_novelty_slot_capped` | 固定 4 | 开启 | 相机 `K` | 双向二维多深度投影 + novelty，单槽受限 | projected multi-depth | flat 方法的 capped packing 消融 |
+| `motion_novelty_unfilled` | 固定 4 | 开启 | 相机 `K` | 双向二维多深度投影 + novelty，flat 欠填 | projected multi-depth | A16 动态压缩基础方法 |
+| `motion_novelty_backfill` | 固定 4 | 开启 | 相机 `K` | A16 基础计划 + 唯一 token 回填 | projected multi-depth | A17：测量真实额外信息的作用 |
+| `motion_novelty_duplicate` | 固定 4 | 开启 | 相机 `K` | A16 基础计划 + 最高相关 chunk token 重复 | projected multi-depth | A18：满长度/attention 重加权诊断 |
 
 `baseline` 必须不带 `--dykv`；其余 case 通过 `--dykv --dykv-case NAME` 启用。除明确用于
 消融的 `worldkv_pose_no_compression` 外，现有检索和几何裁剪 case 都使用归一化相机内参
@@ -51,17 +52,17 @@ case 按源时间排列，新 case 从 retrieval region 右侧向左按相关性
 
 ### 连续比例 Case
 
-四个 motion novelty case 均已注册并可由 runner 直接执行。它们都使用 chunk 内
-anchor-relative 连续 FOV 新增比例决定每帧 token 数，再用 WorldKV novelty 决定具体 token；
+五个 motion novelty case 均已注册并可由 runner 直接执行。四个主 case 使用 chunk 内
+anchor-relative 双向二维多深度投影决定每帧 token 数，再用 WorldKV novelty 决定具体 token；
 区别是 capped 版本限制单个 virtual slot 不超过 `F`，A16 使用 flat 总预算并允许欠填，A17
 补回尚未选择的唯一 token，A18 重复最高 query-relevance chunk 的基础 token。A17/A18
 共享 A16 的候选排名、selected chunk、基础比例和基础索引，并对齐最终 token 数及 slot load。
 完整实现契约见
 [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
 
-下一版 `motion_projected_unfilled` 计划用双向二维、多深度投影替换 sphere overlap，修正
-forward translation 为零以及平移依赖球形体积的问题。该 case 当前没有注册，不能传给
-runner；详细设计见 [`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)。
+`motion_novelty_sphere_unfilled` 与 `motion_novelty_unfilled` 的 retrieval、novelty、flat
+layout、欠填协议和预算相同，唯一主要变量是旧 sphere-FOV 与 projected multi-depth 几何。
+实现与限制见 [`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)。
 
 可随时列出注册表：
 
@@ -72,7 +73,7 @@ LIST_CASES=1 bash Wan21/scripts/inference/run_dykv_cases.sh
 
 ## 3. 普通 Prompt 一键运行
 
-默认顺序运行全部十五组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
+默认顺序运行全部十六组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
 
 ```bash
 conda activate minwm-fa
@@ -107,6 +108,17 @@ CASES=retrieval_no_compression,retrieval_no_compression_relevance_order \
 OUTPUT_ROOT=output/retrieval_order_ablation \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
+
+只比较旧 sphere-FOV 与 projected multi-depth 压缩率几何：
+
+```bash
+CASES=motion_novelty_sphere_unfilled,motion_novelty_unfilled \
+OUTPUT_ROOT=output/motion_geometry_ablation \
+bash Wan21/scripts/inference/run_dykv_cases.sh
+```
+
+这两组必须使用相同 prompt、trajectory、checkpoint 和 `SEED`；质量之外还应对比 manifest/event
+中的 `motion_geometry_mode`、`motion_keep_ratios`、`base_tokens_per_frame` 和 retrieval latency。
 
 Runner 会把结果写到 `OUTPUT_ROOT/{case}/`。生成参数仍可用
 `CONFIG_PATH`、`CHECKPOINT_PATH`、`SP_SIZE` 等原有环境变量覆盖。执行前可设置

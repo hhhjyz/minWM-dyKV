@@ -23,6 +23,12 @@
 固定 WorldKV 对照则先按 case 选择 8/12/16 个源 latent，再保留每个 chunk 的完整 anchor
 和非 anchor 的固定比例新颖性 token。它们同样只在 materialize 阶段压缩。
 
+Motion novelty case 先保持 FOV retrieval 排名不变，再在每个历史 chunk 内以首帧为完整
+anchor。四个主 case 用双向二维、多深度 projected overlap 决定后三帧各自的连续 token 数，
+再由 layer-0 WorldKV novelty 排名选择具体 token；`motion_novelty_sphere_unfilled` 只把比例
+几何切回旧 sphere-FOV，作为单变量对照。projected 几何使用保存的 `spatial_shape`、逐帧
+W2C/K 和固定 `projection_scene_scale=8`，不会对 CPU bank 做原地裁剪。
+
 记忆库始终保存未压缩的干净 K/V。这样检索选择可逆，也不会在从未被检索的历史内容上
 浪费压缩时间或损失信息。
 
@@ -88,6 +94,8 @@ retrieval region 总计 32 个原子。完整四帧 chunk 优先通过 0/1 背�
 | local 区域 | 8 latent 帧（4 帧 recent + 4 帧 current） |
 | 兼容默认检索压缩 | 历史相对当前 query 的 yaw/FOV 动态空间列裁剪 |
 | E0 非纯 yaw 回退 | 完整 anchor + 后三帧 50% 新颖性 |
+| motion novelty 主几何 | 双向二维多深度投影，`scene_scale=8` |
+| motion novelty 几何对照 | 旧 sphere-FOV，仅用于 `motion_novelty_sphere_unfilled` |
 | 记忆库设备 | CPU |
 
 三区域在 20 帧训练窗口中连续排列为 `[0,4) + [4,12) + [12,20)`，不存在保留空隙。
@@ -115,7 +123,9 @@ DYKV=1 \
 ```
 
 输出目录包含 `dykv_summaries.jsonl`，每个 prompt 对应一条记录。记录包括记忆库字节数、
-选中块 ID、源起始帧、压缩后 token 数以及检索耗时。
+选中块 ID、源起始帧、压缩后 token 数以及检索耗时。Motion event 另记录
+`motion_geometry_mode`、逐深度双向 overlap、连续 keep ratio、相对旋转/平移和逐帧 token 数；
+生成 manifest 记录几何模式与 scene scale。
 
 当前推理已让 dyKV 的相机位姿保持 FP32，并在 PRoPE 算子边界单独转换模型计算副本，解决
 低精度几何量化干扰 yaw/FOV 判断的问题。
