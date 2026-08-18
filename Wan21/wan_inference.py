@@ -117,6 +117,8 @@ config.dykv_compression_keep_ratio = dykv_case.compression_keep_ratio
 config.dykv_packing_mode = dykv_case.packing_mode
 config.dykv_retrieval_layout = dykv_case.retrieval_layout
 config.dykv_retrieval_order = dykv_case.retrieval_order
+config.dykv_motion_geometry_mode = dykv_case.motion_geometry_mode
+config.dykv_projection_scene_scale = 8.0
 config.model_kwargs.sink_size = dykv_case.sink_frames
 config.model_kwargs.tri_region_rope_enabled = True
 config.model_kwargs.dykv_memory_frames = dykv_case.memory_frames
@@ -294,6 +296,12 @@ def record_generation(
         ),
         "dykv_retrieval_order": str(
             getattr(config, "dykv_retrieval_order", "source_ordered")
+        ),
+        "dykv_motion_geometry_mode": str(
+            getattr(config, "dykv_motion_geometry_mode", "projected_multidepth")
+        ),
+        "dykv_projection_scene_scale": float(
+            getattr(config, "dykv_projection_scene_scale", 8.0)
         ),
         "sink_mode": str(config.sink_mode),
         "sink_frames": int(config.sink_frames),

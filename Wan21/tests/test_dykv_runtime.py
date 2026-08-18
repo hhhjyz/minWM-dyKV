@@ -27,6 +27,7 @@ def _load(name):
 _load("dykv_fov")
 memory = _load("dykv_memory")
 _load("dykv_packing")
+_load("dykv_projected_overlap")
 _load("dykv_motion_novelty")
 _load("dykv_worldkv")
 runtime_module = _load("dykv_runtime")
@@ -349,6 +350,7 @@ class DyKVRuntimeTest(unittest.TestCase):
                 frame_tokens=12,
                 viewmats=poses,
                 Ks=_intrinsics(),
+                spatial_shape=(3, 4),
             )
         current = torch.stack([_yaw_w2c(0.0)] * 4).unsqueeze(0)
         payload = runtime.retrieve(
@@ -367,6 +369,9 @@ class DyKVRuntimeTest(unittest.TestCase):
         self.assertTrue(event["segments_source_ordered"])
         self.assertEqual(event["base_tokens_total"], payload["k"].shape[1])
         self.assertEqual(event["unique_backfill_tokens_total"], 0)
+        self.assertEqual(event["motion_geometry_mode"], "projected_multidepth")
+        self.assertEqual(len(event["projection_depths"]), 4)
+        self.assertTrue(event["projected_overlap_ratios"])
 
     def test_motion_novelty_fill_modes_share_selection_and_reference_shape(self):
         outputs = {}
@@ -396,6 +401,7 @@ class DyKVRuntimeTest(unittest.TestCase):
                         frame_tokens=12,
                         viewmats=poses,
                         Ks=_intrinsics(),
+                        spatial_shape=(3, 4),
                     )
                 current = torch.stack([_yaw_w2c(0.0)] * 4).unsqueeze(0)
                 payload = runtime.retrieve(

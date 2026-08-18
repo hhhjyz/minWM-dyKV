@@ -43,6 +43,8 @@ class DyKVConfig:
     bank_device: str = "cpu"
     fov_samples: int = 8192
     fov_radius: float = 8.0
+    motion_geometry_mode: str = "projected_multidepth"
+    projection_scene_scale: float = 8.0
 
     def validate(self, *, chunk_frames: int) -> "DyKVConfig":
         if self.memory_frames <= 0:
@@ -79,6 +81,13 @@ class DyKVConfig:
             )
         if self.retrieval_mode not in {"fov", "worldkv_pose"}:
             raise ValueError("dyKV retrieval_mode must be fov or worldkv_pose")
+        if self.motion_geometry_mode not in {"projected_multidepth", "sphere_fov"}:
+            raise ValueError("unsupported dyKV motion_geometry_mode")
+        if (
+            not math.isfinite(self.projection_scene_scale)
+            or self.projection_scene_scale <= 0.0
+        ):
+            raise ValueError("dyKV projection_scene_scale must be positive and finite")
         if self.packing_mode not in {
             "none",
             "whole_chunks",

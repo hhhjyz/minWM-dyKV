@@ -65,6 +65,12 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                 retrieval_order=str(
                     getattr(args, "dykv_retrieval_order", "source_ordered")
                 ),
+                motion_geometry_mode=str(
+                    getattr(args, "dykv_motion_geometry_mode", "projected_multidepth")
+                ),
+                projection_scene_scale=float(
+                    getattr(args, "dykv_projection_scene_scale", 8.0)
+                ),
             ),
             chunk_frames=self.num_frame_per_block,
         )

@@ -28,6 +28,7 @@ class DyKVCasesTest(unittest.TestCase):
                 "retr12_compression_r050",
                 "retr16_r033_slot_packed",
                 "retr16_compression_r033",
+                "motion_novelty_sphere_unfilled",
                 "motion_novelty_slot_capped",
                 "motion_novelty_unfilled",
                 "motion_novelty_backfill",
@@ -145,6 +146,28 @@ class DyKVCasesTest(unittest.TestCase):
         self.assertEqual(duplicate.retrieval_layout, "flat_source_ordered")
         self.assertEqual(backfill.compression_mode, "motion_novelty")
         self.assertEqual(duplicate.compression_mode, "motion_novelty")
+
+    def test_motion_geometry_ablation_only_changes_geometry_mode(self):
+        sphere = cases.get_dykv_case("motion_novelty_sphere_unfilled")
+        projected = cases.get_dykv_case("motion_novelty_unfilled")
+        self.assertEqual(sphere.motion_geometry_mode, "sphere_fov")
+        self.assertEqual(projected.motion_geometry_mode, "projected_multidepth")
+        self.assertEqual(
+            (
+                sphere.retrieval_mode,
+                sphere.compression_mode,
+                sphere.packing_mode,
+                sphere.retrieval_frames,
+                sphere.retrieval_layout,
+            ),
+            (
+                projected.retrieval_mode,
+                projected.compression_mode,
+                projected.packing_mode,
+                projected.retrieval_frames,
+                projected.retrieval_layout,
+            ),
+        )
 
     def test_every_case_uses_the_same_fixed_four_frame_sink(self):
         for preset in cases.DYKV_CASES.values():

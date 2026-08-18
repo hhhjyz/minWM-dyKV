@@ -1,4 +1,4 @@
-"""Continuous FOV-ratio WorldKV novelty planning for dyKV retrieval."""
+"""Motion-geometry-ratio WorldKV novelty planning for dyKV retrieval."""
 
 from __future__ import annotations
 
@@ -10,10 +10,15 @@ import torch
 
 from .dykv_fov import fov_overlap
 from .dykv_memory import DyKVBank, MemoryBlock
+from .dykv_projected_overlap import (
+    PROJECTED_MULTIDEPTH_MODE,
+    projected_motion_overlap,
+)
 
 
 SOURCE_ORDERED_LAYOUT = "source_ordered"
 FLAT_SOURCE_ORDERED_LAYOUT = "flat_source_ordered"
+SPHERE_FOV_MODE = "sphere_fov"
 
 
 def motion_keep_ratio_and_token_count(
@@ -44,6 +49,12 @@ class MotionFramePlan:
     omitted_indices_in_novelty_order: torch.Tensor
     relative_rotation_degrees: float
     relative_translation_distance: float
+    relative_translation_xyz: tuple[float, float, float]
+    projected_overlap_ratio: float | None
+    projected_forward_overlaps: tuple[float, ...]
+    projected_backward_overlaps: tuple[float, ...]
+    projected_symmetric_overlaps: tuple[float, ...]
+    projection_depths: tuple[float, ...]
     virtual_slot_id: int = -1
 
     @property
@@ -104,6 +115,8 @@ class MotionRetrievalPlan:
     duplicate_tokens_per_frame: tuple[int, ...]
     duplicate_source_block_indices: tuple[int, ...]
     max_source_token_multiplicity: int
+    motion_geometry_mode: str
+    projection_scene_scale: float
 
     @property
     def frames(self) -> tuple[MotionFramePlan, ...]:
@@ -133,15 +146,11 @@ def _frame_matrices(
 def _relative_motion(
     anchor_w2c: torch.Tensor,
     frame_w2c: torch.Tensor,
-) -> tuple[float, float]:
-    anchor_c2w = torch.linalg.inv(anchor_w2c)
-    frame_c2w = torch.linalg.inv(frame_w2c)
-    relative_rotation = anchor_c2w[:3, :3].T @ frame_c2w[:3, :3]
-    cosine = ((torch.trace(relative_rotation) - 1.0) / 2.0).clamp(-1.0, 1.0)
+) -> tuple[float, tuple[float, float, float]]:
+    relative = anchor_w2c @ torch.linalg.inv(frame_w2c)
+    cosine = ((torch.trace(relative[:3, :3]) - 1.0) / 2.0).clamp(-1.0, 1.0)
     rotation = math.degrees(float(torch.acos(cosine)))
-    translation = float(
-        torch.linalg.vector_norm(frame_c2w[:3, 3] - anchor_c2w[:3, 3])
-    )
+    translation = tuple(float(value) for value in relative[:3, 3])
     return rotation, translation
 
 
@@ -176,38 +185,73 @@ def build_motion_chunk_plan(
     *,
     block_index: int,
     retrieval_distance: float,
-    probe_points: torch.Tensor,
-    radius: float,
+    scene_scale: float,
     frame_tokens: int,
+    motion_geometry_mode: str = PROJECTED_MULTIDEPTH_MODE,
+    probe_points: torch.Tensor | None = None,
+    radius: float = 8.0,
 ) -> MotionChunkPlan:
     if int(block.frame_count) != 4:
         raise ValueError("motion novelty requires four-frame chunks")
     poses = _frame_matrices(block.viewmats, frame_count=4, matrix_size=4)
     intrinsics = _frame_matrices(block.Ks, frame_count=4, matrix_size=3)
+    geometry_mode = str(motion_geometry_mode)
+    if geometry_mode not in {PROJECTED_MULTIDEPTH_MODE, SPHERE_FOV_MODE}:
+        raise ValueError(f"unsupported motion novelty geometry mode: {geometry_mode}")
+    spatial_shape = None
+    if geometry_mode == PROJECTED_MULTIDEPTH_MODE:
+        if block.spatial_shape is None:
+            raise ValueError("motion novelty projected geometry is missing spatial shape")
+        spatial_shape = tuple(int(value) for value in block.spatial_shape)
+        if len(spatial_shape) != 2 or math.prod(spatial_shape) != int(frame_tokens):
+            raise ValueError("motion novelty projected spatial shape is invalid")
+    elif probe_points is None:
+        raise ValueError("motion novelty sphere geometry requires probe points")
     orders = _novelty_order(block, frame_tokens=frame_tokens)
     frames = []
     for frame_offset in range(4):
-        rotation, translation = _relative_motion(poses[0], poses[frame_offset])
+        rotation, translation_xyz = _relative_motion(poses[0], poses[frame_offset])
+        if geometry_mode == PROJECTED_MULTIDEPTH_MODE:
+            projected = projected_motion_overlap(
+                poses[frame_offset],
+                poses[0],
+                intrinsics[frame_offset],
+                intrinsics[0],
+                spatial_shape,
+                scene_scale=scene_scale,
+            )
+            raw_overlap = projected.overlap_ratio
+            projected_overlap = projected.overlap_ratio
+            projected_forward = projected.forward_overlaps
+            projected_backward = projected.backward_overlaps
+            projected_symmetric = projected.symmetric_overlaps
+            projection_depths = projected.depths
+        else:
+            raw_overlap = float(
+                fov_overlap(
+                    poses[frame_offset],
+                    poses[0],
+                    probe_points,
+                    current_K=intrinsics[frame_offset],
+                    historical_K=intrinsics[0],
+                    radius=radius,
+                ).item()
+            )
+            if not math.isfinite(raw_overlap):
+                raise ValueError("motion novelty sphere FOV overlap is not finite")
+            projected_overlap = None
+            projected_forward = ()
+            projected_backward = ()
+            projected_symmetric = ()
+            projection_depths = ()
         if frame_offset == 0:
             overlap = 0.0
             keep_ratio = 1.0
             keep_tokens = int(frame_tokens)
         else:
-            overlap_tensor = fov_overlap(
-                poses[frame_offset],
-                poses[0],
-                probe_points,
-                current_K=intrinsics[frame_offset],
-                historical_K=intrinsics[0],
-                radius=radius,
-            )
-            overlap = float(overlap_tensor.item())
-            if not math.isfinite(overlap):
-                raise ValueError("motion novelty FOV overlap is not finite")
-            overlap = min(1.0, max(0.0, overlap))
+            overlap = min(1.0, max(0.0, raw_overlap))
             keep_ratio, keep_tokens = motion_keep_ratio_and_token_count(
-                overlap,
-                frame_tokens,
+                overlap, frame_tokens
             )
         novelty_order = orders[frame_offset]
         base_selection_order = novelty_order[:keep_tokens].clone()
@@ -224,7 +268,15 @@ def build_motion_chunk_plan(
                 base_indices_in_selection_order=base_selection_order,
                 omitted_indices_in_novelty_order=omitted,
                 relative_rotation_degrees=rotation,
-                relative_translation_distance=translation,
+                relative_translation_distance=math.sqrt(
+                    sum(value * value for value in translation_xyz)
+                ),
+                relative_translation_xyz=translation_xyz,
+                projected_overlap_ratio=projected_overlap,
+                projected_forward_overlaps=projected_forward,
+                projected_backward_overlaps=projected_backward,
+                projected_symmetric_overlaps=projected_symmetric,
+                projection_depths=projection_depths,
             )
         )
     distance = float(retrieval_distance)
@@ -523,12 +575,14 @@ def build_motion_retrieval_plan(
     ranked_block_indices: Sequence[int],
     ranked_distances: Sequence[float],
     *,
-    probe_points: torch.Tensor,
-    radius: float,
+    scene_scale: float,
     frame_tokens: int,
     memory_frames: int,
     sink_frames: int,
     slot_capped: bool,
+    motion_geometry_mode: str = PROJECTED_MULTIDEPTH_MODE,
+    probe_points: torch.Tensor | None = None,
+    radius: float = 8.0,
     candidate_block_indices: Sequence[int] | None = None,
     fill_mode: str = "unfilled",
 ) -> MotionRetrievalPlan:
@@ -559,8 +613,10 @@ def build_motion_retrieval_plan(
                 bank.blocks[int(block_index)],
                 block_index=int(block_index),
                 retrieval_distance=float(distance),
+                motion_geometry_mode=motion_geometry_mode,
                 probe_points=probe_points,
                 radius=radius,
+                scene_scale=scene_scale,
                 frame_tokens=frame_tokens,
             )
         except (RuntimeError, ValueError):
@@ -690,6 +746,8 @@ def build_motion_retrieval_plan(
         duplicate_tokens_per_frame=tuple(duplicate_counts),
         duplicate_source_block_indices=duplicate_sources,
         max_source_token_multiplicity=max_multiplicity,
+        motion_geometry_mode=str(motion_geometry_mode),
+        projection_scene_scale=float(scene_scale),
     )
 
 
@@ -783,6 +841,31 @@ def materialize_motion_retrieval(
                 "motion_fov_overlaps": [
                     frame.fov_overlap for frame in diagnostic_frames
                 ],
+                "motion_geometry_overlaps": [
+                    frame.fov_overlap for frame in diagnostic_frames
+                ],
+                "motion_geometry_mode": plan.motion_geometry_mode,
+                "projection_scene_scale": plan.projection_scene_scale,
+                "projection_depths": (
+                    list(diagnostic_frames[0].projection_depths)
+                    if diagnostic_frames
+                    else []
+                ),
+                "projected_overlap_ratios": [
+                    frame.projected_overlap_ratio for frame in diagnostic_frames
+                ],
+                "projected_forward_overlaps_per_frame_per_depth": [
+                    list(frame.projected_forward_overlaps)
+                    for frame in diagnostic_frames
+                ],
+                "projected_backward_overlaps_per_frame_per_depth": [
+                    list(frame.projected_backward_overlaps)
+                    for frame in diagnostic_frames
+                ],
+                "projected_symmetric_overlaps_per_frame_per_depth": [
+                    list(frame.projected_symmetric_overlaps)
+                    for frame in diagnostic_frames
+                ],
                 "motion_keep_ratios": [
                     frame.keep_ratio for frame in diagnostic_frames
                 ],
@@ -791,6 +874,10 @@ def materialize_motion_retrieval(
                 ],
                 "relative_translation_distances": [
                     frame.relative_translation_distance for frame in diagnostic_frames
+                ],
+                "relative_translation_xyz": [
+                    list(frame.relative_translation_xyz)
+                    for frame in diagnostic_frames
                 ],
                 "motion_geometry_invalid_block_ids": [
                     bank.blocks[index].block_id

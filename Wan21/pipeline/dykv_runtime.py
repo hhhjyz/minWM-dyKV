@@ -137,8 +137,10 @@ class DyKVRuntime:
                 bank,
                 ranked_candidates,
                 distances,
+                motion_geometry_mode=self.config.motion_geometry_mode,
                 probe_points=self.probe_points,
                 radius=self.config.fov_radius,
+                scene_scale=self.config.projection_scene_scale,
                 frame_tokens=frame_tokens,
                 memory_frames=self.config.memory_frames,
                 sink_frames=self.config.sink_frames,
@@ -282,12 +284,39 @@ class DyKVRuntime:
                     "retrieval_similarities", []
                 ),
                 "motion_fov_overlaps": diagnostics.get("motion_fov_overlaps", []),
+                "motion_geometry_overlaps": diagnostics.get(
+                    "motion_geometry_overlaps", []
+                ),
+                "motion_geometry_mode": diagnostics.get(
+                    "motion_geometry_mode",
+                    self.config.motion_geometry_mode,
+                ),
+                "projection_scene_scale": diagnostics.get(
+                    "projection_scene_scale",
+                    self.config.projection_scene_scale,
+                ),
+                "projection_depths": diagnostics.get("projection_depths", []),
+                "projected_overlap_ratios": diagnostics.get(
+                    "projected_overlap_ratios", []
+                ),
+                "projected_forward_overlaps_per_frame_per_depth": diagnostics.get(
+                    "projected_forward_overlaps_per_frame_per_depth", []
+                ),
+                "projected_backward_overlaps_per_frame_per_depth": diagnostics.get(
+                    "projected_backward_overlaps_per_frame_per_depth", []
+                ),
+                "projected_symmetric_overlaps_per_frame_per_depth": diagnostics.get(
+                    "projected_symmetric_overlaps_per_frame_per_depth", []
+                ),
                 "motion_keep_ratios": diagnostics.get("motion_keep_ratios", []),
                 "relative_rotation_degrees": diagnostics.get(
                     "relative_rotation_degrees", []
                 ),
                 "relative_translation_distances": diagnostics.get(
                     "relative_translation_distances", []
+                ),
+                "relative_translation_xyz": diagnostics.get(
+                    "relative_translation_xyz", []
                 ),
                 "motion_geometry_invalid_block_ids": diagnostics.get(
                     "motion_geometry_invalid_block_ids", []
@@ -351,6 +380,8 @@ class DyKVRuntime:
             "retrieval_order": self.config.retrieval_order,
             "retrieval_frames": self.config.retrieval_frames,
             "compression_keep_ratio": self.config.compression_keep_ratio,
+            "motion_geometry_mode": self.config.motion_geometry_mode,
+            "projection_scene_scale": self.config.projection_scene_scale,
             "branches": {branch: bank.summary() for branch, bank in self.banks.items()},
             "events": list(self.events),
         }

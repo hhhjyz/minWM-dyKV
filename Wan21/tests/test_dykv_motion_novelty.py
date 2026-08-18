@@ -26,6 +26,7 @@ def _load(name):
 
 fov = _load("dykv_fov")
 memory = _load("dykv_memory")
+_load("dykv_projected_overlap")
 motion = _load("dykv_motion_novelty")
 
 
@@ -43,6 +44,13 @@ def _intrinsics(frames=4, horizontal=60.0):
     fx = 0.5 / math.tan(math.radians(horizontal) / 2.0)
     K = torch.tensor([[fx, 0.0, 0.5], [0.0, fx, 0.5], [0.0, 0.0, 1.0]])
     return torch.stack([K] * frames).unsqueeze(0)
+
+
+def _spatial_shape(frame_tokens):
+    for height in range(int(math.sqrt(frame_tokens)), 0, -1):
+        if frame_tokens % height == 0:
+            return height, frame_tokens // height
+    raise AssertionError("frame token count has no spatial factorization")
 
 
 def _cache(block_value, frame_tokens):
@@ -68,6 +76,7 @@ def _bank(yaws_per_chunk, frame_tokens=20):
             frame_tokens=frame_tokens,
             viewmats=poses,
             Ks=_intrinsics(),
+            spatial_shape=_spatial_shape(frame_tokens),
         )
     return bank
 
@@ -83,8 +92,7 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
             bank.blocks[0],
             block_index=0,
             retrieval_distance=0.1,
-            probe_points=self.points,
-            radius=8.0,
+            scene_scale=8.0,
             frame_tokens=20,
         )
 
@@ -108,14 +116,13 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not finite"):
             motion.motion_keep_ratio_and_token_count(float("nan"), 1560)
 
-    def test_fov_keep_ratio_is_continuous_and_controls_only_token_count(self):
+    def test_projected_keep_ratio_is_continuous_and_controls_only_token_count(self):
         bank = _bank([(0, 17, 29, 41)], frame_tokens=100)
         chunk = motion.build_motion_chunk_plan(
             bank.blocks[0],
             block_index=0,
             retrieval_distance=0.2,
-            probe_points=self.points,
-            radius=8.0,
+            scene_scale=8.0,
             frame_tokens=100,
         )
 
@@ -133,6 +140,24 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
             )
             self.assertTrue(torch.equal(frame.base_indices, frame.base_indices.sort().values))
 
+    def test_sphere_ablation_uses_legacy_overlap_without_projected_diagnostics(self):
+        bank = _bank([(0, 17, 29, 41)], frame_tokens=100)
+        chunk = motion.build_motion_chunk_plan(
+            bank.blocks[0],
+            block_index=0,
+            retrieval_distance=0.2,
+            motion_geometry_mode="sphere_fov",
+            probe_points=self.points,
+            radius=8.0,
+            scene_scale=8.0,
+            frame_tokens=100,
+        )
+
+        for frame in chunk.frames:
+            self.assertIsNone(frame.projected_overlap_ratio)
+            self.assertEqual(frame.projection_depths, ())
+        self.assertTrue(any(frame.fov_overlap > 0.0 for frame in chunk.frames[1:]))
+
     def test_flat_plan_can_select_more_chunks_than_slot_capped_plan(self):
         bank = _bank([(0, 32, 32, 32)] * 5, frame_tokens=100)
         ranked = list(range(5))
@@ -141,8 +166,7 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
             bank,
             ranked,
             distances,
-            probe_points=self.points,
-            radius=8.0,
+            scene_scale=8.0,
             frame_tokens=100,
             memory_frames=8,
             sink_frames=4,
@@ -152,8 +176,7 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
             bank,
             ranked,
             distances,
-            probe_points=self.points,
-            radius=8.0,
+            scene_scale=8.0,
             frame_tokens=100,
             memory_frames=8,
             sink_frames=4,
@@ -175,8 +198,7 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
             bank,
             list(range(4)),
             [0.1, 0.2, 0.3, 0.4],
-            probe_points=self.points,
-            radius=8.0,
+            scene_scale=8.0,
             frame_tokens=40,
             memory_frames=8,
             sink_frames=4,
@@ -203,8 +225,7 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
             bank,
             (0, 1, 2),
             (0.1, 0.2, 0.3),
-            probe_points=self.points,
-            radius=8.0,
+            scene_scale=8.0,
             frame_tokens=20,
             memory_frames=8,
             sink_frames=4,
@@ -239,8 +260,7 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
             bank,
             (0, 1),
             (0.1, 0.2),
-            probe_points=self.points,
-            radius=8.0,
+            scene_scale=8.0,
             frame_tokens=20,
             memory_frames=8,
             sink_frames=4,
@@ -255,8 +275,7 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
             bank=bank,
             ranked_block_indices=list(range(5)),
             ranked_distances=[0.01 * index for index in range(5)],
-            probe_points=self.points,
-            radius=8.0,
+            scene_scale=8.0,
             frame_tokens=40,
             memory_frames=8,
             sink_frames=4,
