@@ -35,6 +35,7 @@ conda activate minwm-fa
 | --- | --- | --- | --- | --- |
 | B0 | `baseline` | `4+0+16` tri-region RoPE；固定 sink + rolling local 16 | 统一 RoPE 后的质量/速度基线 | 待运行 |
 | B1 | `retrieval_no_compression` | 不压缩的 dyKV | 单独分析检索收益 | 待运行 |
+| B1-R | `retrieval_no_compression_relevance_order` | B1 相同检索，高相关 chunk 靠近 query | 隔离 retrieval RoPE 排列的影响 | 待运行 |
 | B1-W | `worldkv_pose_no_compression` | WorldKV 平均位姿检索，不压缩 | 与 B1 单变量比较检索评分 | 待运行 |
 | B3 | `yaw_intrinsics` | 当前-query 几何裁剪（E0 兼容默认） | 评估旧动态路径的记忆、速度与质量 | 待运行 |
 | B4 | `packed_chunks` | 固定档位完整 chunk 扩容 | 评估更多完整历史覆盖 | 待运行 |
@@ -72,6 +73,9 @@ minWM-back 固定比例 A--D 对照由 B1/B6/B7/B8 构成，具体预算与适�
 [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)。
 B1 与 B1-W 的唯一实验变量是 FOV overlap 或 WorldKV 平均位姿得分，见
 [`WORLDKV_RETRIEVAL_ABLATION.md`](WORLDKV_RETRIEVAL_ABLATION.md)。
+B1-R 与 B1 的选中 chunk 和 token 数完全一致，只将最高相关 chunk rebase 到 retrieval
+region 的 `8~11`，见
+[`RELEVANCE_ORDERED_RETRIEVAL.md`](RELEVANCE_ORDERED_RETRIEVAL.md)。
 
 ## 评测分组
 
@@ -105,6 +109,7 @@ B1 正式质量指标已经完成，核心结果表仍保持“待运行”。
 | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
 | 待运行 | B0 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 基线 |
 | 待运行 | B1 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 仅检索 |
+| 待运行 | B1-R | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 相关性 RoPE 排列 |
 | 待运行 | B1-W | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | WorldKV 位姿检索 |
 | 待运行 | B3 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | E0 兼容默认 |
 | 待运行 | B4 | 待运行 | 0 | 待运行 | 待运行 | 待运行 | 待运行 | 完整 chunk 扩容 |

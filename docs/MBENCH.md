@@ -46,7 +46,7 @@ MBench 的长度指解码后视频帧数。Wan VAE 在时间维度上放大 4 �
 ```bash
 MBENCH_ROOT=/absolute/path/to/MBench-A-Setup \
 ASSIGNMENTS=/absolute/path/to/official/samples.jsonl \
-CASES=baseline,retrieval_no_compression,worldkv_pose_no_compression,yaw_intrinsics,packed_chunks,packed_chunks_latent,retr8_compression_r050,retr12_compression_r050,retr16_compression_r033 \
+CASES=baseline,retrieval_no_compression,retrieval_no_compression_relevance_order,worldkv_pose_no_compression,yaw_intrinsics,packed_chunks,packed_chunks_latent,retr8_compression_r050,retr12_compression_r050,retr16_compression_r033 \
 OUTPUT_ROOT=output/mbench_dykv_cases \
 NUM_OUTPUT_FRAMES=100 \
 SEED=0 \

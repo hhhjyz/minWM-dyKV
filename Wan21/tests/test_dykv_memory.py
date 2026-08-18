@@ -75,6 +75,11 @@ class DyKVMemoryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "retrieval_layout"):
             config.validate(chunk_frames=4)
 
+    def test_config_rejects_unknown_retrieval_order(self):
+        config = DyKVConfig(enabled=True, retrieval_order="unknown")
+        with self.assertRaisesRegex(ValueError, "retrieval_order"):
+            config.validate(chunk_frames=4)
+
     def test_fixed_worldkv_allows_source_coverage_above_physical_memory(self):
         config = DyKVConfig(
             enabled=True,
@@ -128,6 +133,16 @@ class DyKVMemoryTest(unittest.TestCase):
 
         self.assertEqual(payload["src_frame_ids"], [4, 6])
         self.assertEqual(payload["chunk_token_lengths"], [6, 6])
+
+        relevance_payload = bank.materialize(
+            [1, 0],
+            target_device="cpu",
+            chunk_frames=2,
+            frame_tokens=4,
+            keep_ratio=0.5,
+            preserve_input_order=True,
+        )[0]
+        self.assertEqual(relevance_payload["src_frame_ids"], [6, 4])
         self.assertEqual(payload["k"].shape[1], 12)
         self.assertTrue(bank.blocks[0].layers[0].k.equal(before))
 

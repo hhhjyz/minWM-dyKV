@@ -26,6 +26,7 @@ class DyKVCase:
     retrieval_frames: int = 8
     compression_keep_ratio: float = 0.5
     retrieval_layout: str = "source_ordered"
+    retrieval_order: str = "source_ordered"
     sink_mode: str = FIXED_SINK_MODE
     sink_frames: int = FIXED_SINK_FRAMES
 
@@ -59,6 +60,13 @@ DYKV_CASES = {
             True,
             "none",
             "按相机内参进行 FOV 检索，但不压缩检索 KV",
+        ),
+        DyKVCase(
+            "retrieval_no_compression_relevance_order",
+            True,
+            "none",
+            "与无压缩 FOV 检索相同，但高相关 chunk 的 RoPE 位置更靠近当前 query",
+            retrieval_order="relevance_near_query",
         ),
         DyKVCase(
             "worldkv_pose_no_compression",

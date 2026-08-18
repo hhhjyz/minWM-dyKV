@@ -132,6 +132,45 @@ class DyKVRoPETest(unittest.TestCase):
         self.assertTrue(cache["k"].equal(original_cache_k))
         self.assertTrue(retrieval_k.equal(original_retrieval_k))
 
+    def test_unpacked_payload_order_controls_chunk_rope_proximity(self):
+        keys = torch.randn(1, 20, 1, 6)
+        values = torch.arange(20, dtype=torch.float32).reshape(1, 20, 1, 1)
+        retrieval_k = torch.randn(1, 8, 1, 6)
+        retrieval_v = torch.arange(100, 108, dtype=torch.float32).reshape(1, 8, 1, 1)
+        retrieval = {
+            "k": retrieval_k,
+            "v": retrieval_v,
+            # Less relevant source 12 is first; best source 4 is last.
+            "src_frame_ids": [12, 4],
+            "chunk_frame_counts": [4, 4],
+            "chunk_token_lengths": [4, 4],
+        }
+
+        composed_k, composed_v = compose_tri_region(
+            {"k": keys, "v": values},
+            local_end_index=20,
+            frame_tokens=1,
+            current_end_frame=44,
+            query_frames=4,
+            freqs=_freqs(64),
+            retrieval=retrieval,
+            spec=TriRegionSpec(),
+            dtype=keys.dtype,
+            device=keys.device,
+        )
+
+        expected = torch.cat(
+            [
+                shift_roped_time(retrieval_k[:, :4], _freqs(64), 4 - 12),
+                shift_roped_time(retrieval_k[:, 4:], _freqs(64), 8 - 4),
+            ],
+            dim=1,
+        )
+        self.assertTrue(torch.allclose(composed_k[:, 4:12], expected))
+        self.assertEqual(
+            composed_v[:, 4:12].flatten().tolist(), list(range(100, 108))
+        )
+
     def test_packed_segments_are_rebased_to_explicit_shared_slots(self):
         keys = torch.randn(1, 20, 1, 6)
         values = torch.arange(20, dtype=torch.float32).reshape(1, 20, 1, 1)

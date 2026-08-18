@@ -36,6 +36,9 @@ class DyKVConfig:
     compression_mode: str = "yaw_fov"
     packing_mode: str = "none"
     retrieval_layout: str = "source_ordered"
+    # Unpacked chunk-to-RoPE-slot assignment. Relevance ordering keeps the
+    # selected set unchanged and only puts the best match nearest the query.
+    retrieval_order: str = "source_ordered"
     retrieval_mode: str = "fov"
     bank_device: str = "cpu"
     fov_samples: int = 8192
@@ -95,6 +98,18 @@ class DyKVConfig:
             "flat_source_ordered",
         }:
             raise ValueError("unsupported dyKV retrieval_layout")
+        if self.retrieval_order not in {
+            "source_ordered",
+            "relevance_near_query",
+        }:
+            raise ValueError("unsupported dyKV retrieval_order")
+        if (
+            self.retrieval_order == "relevance_near_query"
+            and self.packing_mode != "none"
+        ):
+            raise ValueError(
+                "relevance_near_query currently requires unpacked retrieval"
+            )
         if self.retrieval_frames <= 0 or self.retrieval_frames % chunk_frames:
             raise ValueError(
                 "dyKV retrieval_frames must be positive and chunk-aligned"
@@ -470,13 +485,15 @@ class DyKVBank:
         compression_mode: str = "yaw_fov",
         current_viewmats: torch.Tensor | None = None,
         current_Ks: torch.Tensor | None = None,
+        preserve_input_order: bool = False,
     ) -> list[dict]:
         """Build one compressed retrieval payload per transformer layer."""
 
         selected = [self.blocks[int(index)] for index in block_indices]
         if not selected:
             return []
-        selected.sort(key=lambda block: block.frame_start)
+        if not preserve_input_order:
+            selected.sort(key=lambda block: block.frame_start)
         if any(block.frame_count != int(chunk_frames) for block in selected):
             raise ValueError(
                 "retrieval-time compression requires complete model-sized chunks"

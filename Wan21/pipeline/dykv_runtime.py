@@ -195,8 +195,22 @@ class DyKVRuntime:
             )
             selected = list(packing_plan.selected_full_blocks)
         else:
+            materialization_indices = selected
+            if self.config.retrieval_order == "relevance_near_query":
+                selected_set = set(selected)
+                # Ranking is best-to-worst. Materialization proceeds from the
+                # left edge of retrieval RoPE, so reverse it: the best chunk is
+                # assigned last and therefore lands nearest local/current.
+                selected_by_relevance = [
+                    index for index in ranked_candidates if index in selected_set
+                ]
+                if len(selected_by_relevance) != len(selected):
+                    raise RuntimeError(
+                        "retrieval ranking does not cover every selected block"
+                    )
+                materialization_indices = list(reversed(selected_by_relevance))
             payloads = bank.materialize(
-                selected,
+                materialization_indices,
                 target_device=target_device,
                 chunk_frames=self.chunk_frames,
                 frame_tokens=frame_tokens,
@@ -204,6 +218,9 @@ class DyKVRuntime:
                 compression_mode=self.config.compression_mode,
                 current_viewmats=current_viewmats,
                 current_Ks=current_Ks,
+                preserve_input_order=(
+                    self.config.retrieval_order == "relevance_near_query"
+                ),
             ) if selected else None
         if not payloads:
             payloads = None
@@ -220,6 +237,9 @@ class DyKVRuntime:
                 "selected_block_ids": [bank.blocks[index].block_id for index in selected],
                 "selected_frame_starts": [bank.blocks[index].frame_start for index in selected],
                 "materialized_frame_starts": diagnostics.get("src_frame_ids", []),
+                "materialized_virtual_chunk_starts": self._virtual_chunk_starts(
+                    diagnostics
+                ),
                 "distances": distances,
                 "worldkv_translation_squared": retrieval_diagnostics.get(
                     "translation_squared", []
@@ -247,6 +267,7 @@ class DyKVRuntime:
                 "source_frame_ids": diagnostics.get("source_frame_ids", []),
                 "virtual_slot_ids": diagnostics.get("virtual_slot_ids", []),
                 "retrieval_layout": diagnostics.get("retrieval_layout"),
+                "retrieval_order": self.config.retrieval_order,
                 "keep_tiers": diagnostics.get("keep_tiers", []),
                 "packing_budget_atoms": diagnostics.get("packing_budget_atoms", 0),
                 "packing_used_atoms": diagnostics.get("packing_used_atoms", 0),
@@ -327,8 +348,22 @@ class DyKVRuntime:
             "retrieval_mode": self.config.retrieval_mode,
             "packing_mode": self.config.packing_mode,
             "retrieval_layout": self.config.retrieval_layout,
+            "retrieval_order": self.config.retrieval_order,
             "retrieval_frames": self.config.retrieval_frames,
             "compression_keep_ratio": self.config.compression_keep_ratio,
             "branches": {branch: bank.summary() for branch, bank in self.banks.items()},
             "events": list(self.events),
         }
+
+    def _virtual_chunk_starts(self, diagnostics: dict) -> list[int]:
+        """Report unpacked chunk RoPE starts in materialization order."""
+
+        frame_counts = diagnostics.get("chunk_frame_counts", [])
+        if not frame_counts:
+            return []
+        starts: list[int] = []
+        cursor = int(self.config.sink_frames)
+        for frame_count in frame_counts:
+            starts.append(cursor)
+            cursor += int(frame_count)
+        return starts

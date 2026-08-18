@@ -17,6 +17,7 @@ token 仍不得超过 8 个完整 latent。
 | --- | --- | --- | --- |
 | A0 | `baseline` | `4+0+16` tri-region RoPE；固定 sink + rolling local 16 | 无长期记忆的统一 RoPE 基线 |
 | A1 | `retrieval_no_compression` | 内参 FOV 检索，不压缩 retrieval KV | 检索本身带来的质量收益与最大开销 |
+| A1-R | `retrieval_no_compression_relevance_order` | 与 A1 选取完全一致，最高相关 chunk rebase 到 `8~11` | 隔离相关性 RoPE 排列的影响 |
 | A1-W | `worldkv_pose_no_compression` | WorldKV 平均位姿检索，不压缩 retrieval KV | 与 A1 隔离检索评分公式的影响 |
 | A3 | `yaw_intrinsics` | 内参检索 + 当前-query yaw/FOV 裁剪 | E0 兼容默认的质量/效率折中 |
 | A11 | `packed_chunks` | 固定档位 + 完整 chunk 动态装箱 | 将压缩容量转换为更长历史覆盖 |
@@ -35,6 +36,10 @@ token 仍不得超过 8 个完整 latent。
 A1 与 A1-W 具有相同候选集合、缓存布局、token 预算、填充顺序和 RoPE，只分别使用 FOV
 overlap 与 WorldKV 平均位姿得分。原 WorldKV 仓库中其他不一致项没有混入该消融，详见
 [`WORLDKV_RETRIEVAL_ABLATION.md`](WORLDKV_RETRIEVAL_ABLATION.md)。
+
+A1-R 与 A1 使用相同 FOV 排名和选中集合，不改变 attention token 数；A1 按源时间将两个
+chunk 放入 `4~7`、`8~11`，A1-R 则保证最高相关 chunk 位于 `8~11`。两者必须使用相同
+seed、prompt、trajectory 和 checkpoint 成对生成。
 
 A1/A13/A14/A15 对应 minWM-back 的固定预算 A--D。A1 与 A15 物理 retrieval token
 完全相同；A13 与 A14 使用相同 `r=1/2`。详细预算见

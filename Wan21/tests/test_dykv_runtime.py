@@ -139,6 +139,45 @@ class DyKVRuntimeTest(unittest.TestCase):
         self.assertEqual(event["ranked_candidate_block_ids"][:2], [1, 3])
         self.assertEqual(event["retrieved_tokens_per_layer"], 8)
 
+    def test_relevance_order_places_best_chunk_nearest_query(self):
+        config = memory.DyKVConfig(
+            enabled=True,
+            memory_frames=8,
+            fov_samples=2048,
+            compression_mode="none",
+            retrieval_order="relevance_near_query",
+        )
+        runtime = runtime_module.DyKVRuntime(config, chunk_frames=4)
+        for start, x in zip((0, 4, 8, 12, 16), (0, 1, 8, 2, 3)):
+            poses = torch.stack([_w2c(x)] * 4).unsqueeze(0)
+            runtime.archive(
+                "main",
+                [_cache(start)],
+                frame_start=start,
+                frame_count=4,
+                frame_tokens=1,
+                viewmats=poses,
+                Ks=_intrinsics(),
+            )
+
+        payloads = runtime.retrieve(
+            "main",
+            current_frame=20,
+            current_viewmats=torch.stack([_w2c(1.1)] * 4).unsqueeze(0),
+            current_Ks=_intrinsics(),
+            frame_tokens=1,
+            target_device="cpu",
+        )
+
+        # The same chunks are selected as source-order retrieval. Chunk 4 is
+        # the best match, so it is materialized last at virtual frames 8..11.
+        self.assertEqual(payloads[0]["src_frame_ids"], [12, 4])
+        event = runtime.summary()["events"][0]
+        self.assertEqual(event["selected_frame_starts"], [4, 12])
+        self.assertEqual(event["materialized_frame_starts"], [12, 4])
+        self.assertEqual(event["materialized_virtual_chunk_starts"], [4, 8])
+        self.assertEqual(event["retrieval_order"], "relevance_near_query")
+
     def test_runtime_reports_yaw_crop_diagnostics(self):
         config = memory.DyKVConfig(enabled=True, fov_samples=2048)
         runtime = runtime_module.DyKVRuntime(config, chunk_frames=4)

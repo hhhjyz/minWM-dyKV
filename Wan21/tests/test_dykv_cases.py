@@ -19,6 +19,7 @@ class DyKVCasesTest(unittest.TestCase):
             (
                 "baseline",
                 "retrieval_no_compression",
+                "retrieval_no_compression_relevance_order",
                 "worldkv_pose_no_compression",
                 "yaw_intrinsics",
                 "packed_chunks",
@@ -51,6 +52,30 @@ class DyKVCasesTest(unittest.TestCase):
         self.assertEqual(fov.retrieval_frames, worldkv.retrieval_frames)
         self.assertEqual(fov.local_frames, worldkv.local_frames)
         self.assertEqual(fov.sink_frames, worldkv.sink_frames)
+
+    def test_relevance_order_ablation_only_changes_chunk_rope_order(self):
+        source_order = cases.get_dykv_case("retrieval_no_compression")
+        relevance_order = cases.get_dykv_case(
+            "retrieval_no_compression_relevance_order"
+        )
+        self.assertEqual(source_order.retrieval_order, "source_ordered")
+        self.assertEqual(relevance_order.retrieval_order, "relevance_near_query")
+        self.assertEqual(
+            (
+                source_order.retrieval_mode,
+                source_order.compression_mode,
+                source_order.packing_mode,
+                source_order.retrieval_frames,
+                source_order.compression_keep_ratio,
+            ),
+            (
+                relevance_order.retrieval_mode,
+                relevance_order.compression_mode,
+                relevance_order.packing_mode,
+                relevance_order.retrieval_frames,
+                relevance_order.compression_keep_ratio,
+            ),
+        )
 
     def test_no_case_exposes_a_fixed_fov_parameter(self):
         for preset in cases.DYKV_CASES.values():

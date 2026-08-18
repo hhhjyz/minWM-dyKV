@@ -62,6 +62,9 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
                 retrieval_layout=str(
                     getattr(args, "dykv_retrieval_layout", "source_ordered")
                 ),
+                retrieval_order=str(
+                    getattr(args, "dykv_retrieval_order", "source_ordered")
+                ),
             ),
             chunk_frames=self.num_frame_per_block,
         )

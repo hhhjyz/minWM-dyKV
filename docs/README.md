@@ -51,7 +51,8 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)：连续 FOV 保留比例、WorldKV novelty 选择，以及 capped、欠填、唯一 token 补回和重复 token 消融；四个 case 均已实现注册；
 - [`FIXED_WORLDKV_CASES.md`](FIXED_WORLDKV_CASES.md)：minWM-back 固定压缩率与 chunk 数 A--D 对照；
 - [`ABLATIONS.md`](ABLATIONS.md)：动态压缩、检索与几何设计的消融实验矩阵；
-- [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)：十四个可运行 case 与普通/MBench 统一 runner；
+- [`CASES_AND_RUNNER.md`](CASES_AND_RUNNER.md)：十五个可运行 case 与普通/MBench 统一 runner；
+- [`RELEVANCE_ORDERED_RETRIEVAL.md`](RELEVANCE_ORDERED_RETRIEVAL.md)：按检索相关性分配 retrieval RoPE 位置；
 - [`MBENCH.md`](MBENCH.md)：用例转换、生成与评测流程；
 - [`MBENCH_TYPICAL_SAMPLES.md`](MBENCH_TYPICAL_SAMPLES.md)：四/八个典型样本及小规模对比命令；
 - [`EXPERIMENTS.md`](EXPERIMENTS.md)：实验矩阵、运行命令、环境与实测结果。

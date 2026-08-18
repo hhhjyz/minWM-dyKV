@@ -5,16 +5,17 @@
 所有可直接运行的对照都注册在 `Wan21/dykv_cases.py`。公开接口只增加一个枚举参数
 `--dykv-case`，每个 case 一次性确定压缩方式、检索 FOV 来源和裁剪 FOV 来源，不再暴露
 彼此独立的内部开关。所有 case 都固定保留最初 4 个 latent 作为 sink，并使用映射到
-`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，十三个 dyKV case
+`0~19` 的 tri-region RoPE：baseline 使用空 retrieval 的 `4+0+16`，十四个 dyKV case
 使用连续的 `4+8+8`。
 
-## 2. 当前十四个 Case
+## 2. 当前十五个 Case
 
 | Case | Sink | dyKV | 检索方法 | 检索时压缩 | 裁剪 FOV | 用途 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `baseline` | 固定 4 | 关闭 | — | — | — | `4+0+16` tri-region RoPE，无长期检索 |
 | `retrieval_no_compression` | 固定 4 | 开启 | FOV overlap（相机 `K`） | 不压缩 | — | 隔离长期检索收益和最大开销 |
-| `worldkv_pose_no_compression` | 固定 4 | 开启 | WorldKV 平均 C2W 位姿 | 不压缩 | — | 与上一行构成只改变检索评分的消融 |
+| `retrieval_no_compression_relevance_order` | 固定 4 | 开启 | 与上一行相同 | 不压缩 | — | 只把最高相关 chunk rebase 到更靠近 query 的 `8~11` |
+| `worldkv_pose_no_compression` | 固定 4 | 开启 | WorldKV 平均 C2W 位姿 | 不压缩 | — | 与 `retrieval_no_compression` 构成只改变检索评分的消融 |
 | `yaw_intrinsics` | 固定 4 | 开启 | 相机 `K` | 历史相对当前 query 的 yaw 空间列裁剪 | 相机 `K` | E0，兼容默认预设 |
 | `packed_chunks` | 固定 4 | 开启 | 相机 `K` | `{1,1/2,1/4}` 固定档位 | 相机 `K` | E1，32 原子预算内扩充完整 chunk |
 | `packed_chunks_latent` | 固定 4 | 开启 | 相机 `K` | 固定档位 + 单 latent 尾部 | 相机 `K` | E2，完整 chunk 后继续补齐余量 |
@@ -42,6 +43,12 @@
 virtual slot 和 `8F` 预算完全一致，只分别按 virtual slot 与 source frame 排列 payload。
 该 case 用于验证非 causal attention 下同步 K/V permutation 的等价性，不是新的压缩方法。
 
+`retrieval_no_compression_relevance_order` 与 `retrieval_no_compression` 的候选、FOV 距离、
+被选 chunk、token 数量和压缩模式完全一致。唯一变量是 chunk 的 retrieval RoPE 位置：原
+case 按源时间排列，新 case 从 retrieval region 右侧向左按相关性分配，使最高相关 chunk
+位于 `8~11`。实现与日志字段见
+[`RELEVANCE_ORDERED_RETRIEVAL.md`](RELEVANCE_ORDERED_RETRIEVAL.md)。
+
 ### 连续比例 Case
 
 四个 motion novelty case 均已注册并可由 runner 直接执行。它们都使用 chunk 内
@@ -61,7 +68,7 @@ LIST_CASES=1 bash Wan21/scripts/inference/run_dykv_cases.sh
 
 ## 3. 普通 Prompt 一键运行
 
-默认顺序运行全部十四组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
+默认顺序运行全部十五组，并将同一输入、轨迹、seed 的结果保存到独立子目录：
 
 ```bash
 conda activate minwm-fa
@@ -86,6 +93,14 @@ bash Wan21/scripts/inference/run_dykv_cases.sh
 ```bash
 CASES=retrieval_no_compression,worldkv_pose_no_compression \
 OUTPUT_ROOT=output/retrieval_algorithm_ablation \
+bash Wan21/scripts/inference/run_dykv_cases.sh
+```
+
+只比较源时间排列与相关性靠近 query 的 RoPE 排列：
+
+```bash
+CASES=retrieval_no_compression,retrieval_no_compression_relevance_order \
+OUTPUT_ROOT=output/retrieval_order_ablation \
 bash Wan21/scripts/inference/run_dykv_cases.sh
 ```
 
