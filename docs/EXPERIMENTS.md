@@ -48,12 +48,17 @@ conda activate minwm-fa
 | B9 | `motion_novelty_unfilled` | 连续 FOV keep ratio + WorldKV novelty，允许欠填 | 验证连续比例基础方法 | 2 个典型样本已生成，未评分 |
 | B10 | `motion_novelty_backfill` | B9 相同基础计划 + 补回未选唯一 token | 隔离真实额外信息与欠填影响 | checkpoint 冒烟通过，待评分 |
 | B11 | `motion_novelty_duplicate` | B9 相同基础计划 + 重复最高相关 chunk 源 token | 隔离满长度/attention 重加权影响 | checkpoint 冒烟通过，待评分 |
+| B12 | `motion_projected_unfilled` | 双向二维、多深度 projected overlap + WorldKV novelty | 修正各类相机运动的基础 token 比例 | 设计完成，尚未实现或注册 |
 
 ### 连续比例对照约束
 
 B9--B11 均可由 runner 执行。三者共享候选排名、selected chunk、基础比例与基础 token；
 B10/B11 还对齐最终 token 数和每槽 load。设计、日志和判读契约见
 [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
+
+B12 在第一阶段只替换 B9 的几何 token 数，必须保持 retrieval ranking、novelty、欠填协议和
+flat layout 不变。其 projected backfill/duplicate 版本只有在 B12 单变量验证通过后才实现；
+设计见 [`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)。
 
 以上 case 均可由 `Wan21/scripts/inference/run_dykv_cases.sh` 统一运行。固定 FOV 与混合
 FOV 消融已移除；FOV 路径统一使用相机内参，B1-W 则明确只使用 WorldKV 外参位姿得分。定义见

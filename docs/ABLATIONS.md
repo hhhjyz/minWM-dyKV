@@ -85,6 +85,20 @@ A18 不增加唯一历史覆盖，只是诊断重复内容对 softmax attention 
 比例、reference layout、日志断言和结果解释见
 [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
 
+### 计划中的二维投影几何消融
+
+当前 sphere overlap 在标准 minWM 步长下会让 `w` 前进运动的三个 non-anchor 全部得到零
+token，并且依赖固定球半径表达平移。计划增加以下单变量几何对照；当前尚未实现或注册：
+
+| 编号 | 计划 Case | 固定变量 | 唯一变量 | 目的 |
+| --- | --- | --- | --- | --- |
+| A19 | `motion_projected_unfilled` | A16 的 retrieval、novelty、欠填和 flat layout | sphere overlap → 双向二维多深度投影 | 修正 yaw/pitch/roll、平移和混合运动的 token 比例 |
+| A20 | `motion_projected_backfill` | A19 的几何、候选和基础 token | 补回唯一 token | 验证新几何下真实额外信息的收益 |
+| A21 | `motion_projected_duplicate` | A19 的几何和基础 token；与 A20 对齐长度 | 重复最高相关 chunk token | 隔离长度和 attention 重加权 |
+
+A19 必须先独立验证；A20/A21 不能与几何替换同时实现并直接用于质量归因。完整公式、动作分类、
+深度尺度和验收条件见 [`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)。
+
 ## 4. 检索与压缩解耦消融
 
 动态裁剪作用于“已经被选中的历史块”，因此还应确认收益不是 FOV 检索独自产生：

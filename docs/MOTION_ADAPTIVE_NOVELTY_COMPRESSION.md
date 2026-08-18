@@ -3,6 +3,11 @@
 > 状态：连续 FOV motion planner、source-order/flat payload、单槽限制消融，以及 A16--A18
 > 均已实现并注册。capped/A16 已完成两个 MBench 典型样本的真实 checkpoint 生成但尚未评分；
 > A17/A18 的真实 checkpoint 冒烟也已通过，但尚未进行成对 MBench 质量评分。
+>
+> 当前球形 FOV overlap 对平移，尤其是 forward motion，存在单向视锥包含和场景尺度偏差。
+> 计划中的双向二维、多深度改进见
+> [`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)；该设计尚未实现，不改变
+> 本文现有 case 的语义。
 
 ## 1. 目标
 

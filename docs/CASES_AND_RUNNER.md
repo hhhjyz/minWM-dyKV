@@ -59,6 +59,10 @@ anchor-relative 连续 FOV 新增比例决定每帧 token 数，再用 WorldKV n
 完整实现契约见
 [`MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md`](MOTION_ADAPTIVE_NOVELTY_COMPRESSION.md)。
 
+下一版 `motion_projected_unfilled` 计划用双向二维、多深度投影替换 sphere overlap，修正
+forward translation 为零以及平移依赖球形体积的问题。该 case 当前没有注册，不能传给
+runner；详细设计见 [`PROJECTED_MOTION_COMPRESSION.md`](PROJECTED_MOTION_COMPRESSION.md)。
+
 可随时列出注册表：
 
 ```bash
