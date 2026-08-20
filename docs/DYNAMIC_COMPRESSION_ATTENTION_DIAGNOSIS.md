@@ -455,3 +455,8 @@ descriptor 到 CPU bank；30 层实际 attention K/V 以及 materialization 路�
 mean、median、bootstrap 95% CI、胜率，并按静态场景运动、动态物体、纯旋转、平移/混合运动分组。
 先核对每个 retrieval event 的 selected source blocks 和总 token 数；如果输入状态不一致，PSNR
 差异不能归因到当前单一变量。
+
+该实验已经完成。完整均值、paired bootstrap CI、运动分组和后续设计见
+[`MOTION_ALLOC_20S_ABLATION_RESULTS.md`](MOTION_ALLOC_20S_ABLATION_RESULTS.md)。结果不支持将
+camera+content 或 completely pre-RoPE K 直接设为默认；尤其 completely pre-RoPE 同时移除了
+H/W spatial RoPE，在 rotation-only 与 mixed-motion 上显著降低 pose PSNR。
