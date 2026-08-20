@@ -60,6 +60,7 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - [`COMPRESSION_DEGRADATION_DIAGNOSIS.md`](COMPRESSION_DEGRADATION_DIAGNOSIS.md)：动态压缩 case 不如无压缩 case 的根因分析（novelty token 选择方向、chunk 内 overlap、anchor 选最远帧）与修复建议；
 - [`DYNAMIC_COMPRESSION_ATTENTION_DIAGNOSIS.md`](DYNAMIC_COMPRESSION_ATTENTION_DIAGNOSIS.md)：loop-closure 与同一 MBench 视频的配对 attention capture，包含分阶段 region/window 统计、source packing 重建及动态场景误压缩诊断；
 - [`MOTION_ALLOC_20S_ABLATION_RESULTS.md`](MOTION_ALLOC_20S_ABLATION_RESULTS.md)：fixed 4-chunk/8F、camera/content allocation 与 pre-RoPE novelty 的 20s×30 配对结果、置信区间及下一步漏斗实验；
+- [`MOTION_ALLOC_IMPLEMENTATION_REVIEW.md`](MOTION_ALLOC_IMPLEMENTATION_REVIEW.md)：面向独立审阅者的当前实现说明，包含公式、真实代码语义、已知风险、实验边界和逐项正确性检查表；
 - [`EXPERIMENTS.md`](EXPERIMENTS.md)：实验矩阵、运行命令、环境与实测结果。
 
 ## 参考实现

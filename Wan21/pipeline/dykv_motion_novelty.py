@@ -713,11 +713,12 @@ def build_motion_alloc_4chunk_plan(
     radius: float = 8.0,
     candidate_block_indices: Sequence[int] | None = None,
 ) -> MotionRetrievalPlan:
-    """Select at most four chunks and allocate an exact 2F budget per chunk.
+    """Select at most four chunks and allocate an exact average 2F per chunk.
 
-    Every anchor remains complete.  The remaining F per selected chunk is a
-    shared budget across all non-anchor frames, so latents may cross virtual
-    slot boundaries while the final payload remains in original KV order.
+    Every anchor remains complete. The aggregate remaining nF budget is shared
+    globally across all 3n non-anchor frames; this is not a per-chunk 2F
+    constraint. Latents may cross virtual slot boundaries while the final
+    payload remains in original KV order.
     """
 
     if len(ranked_block_indices) != len(ranked_distances):

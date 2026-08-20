@@ -402,12 +402,13 @@ sheet 同样只能用于定位分叉时刻。
 
 本轮把最优先的三个问题拆成可逐项归因的 case。三者共享 FOV retrieval、原始 KV/source-frame
 顺序、flat 跨 slot 拼接、完整 anchor，以及固定的有效预算：最多选排名最靠前的 4 个合法
-chunk；每个 chunk 保留 `2F`，因此历史充足时严格为 `4 × 2F = 8F`。其中 4 个 anchor 固定
-占 `4F`，另外 `4F` 在 12 个 non-anchor latent 间连续按比例分配，不做档位量化。
+chunk；总预算平均为每个 chunk `2F`，因此历史充足时严格为 `4 × 2F = 8F`。其中 4 个 anchor
+固定占 `4F`，另外 `4F` 在全部 12 个 non-anchor latent 间全局连续分配，不保证单个 chunk
+恰好为 `2F`，也不做档位量化。
 
 | case | chunk / 总预算 | non-anchor 数量分配 | token novelty 排序 | 单一新增变量 |
 | --- | --- | --- | --- | --- |
-| `motion_alloc_cam_4chunk` | 最多 4 / 每 chunk `2F` | projected camera score | cached RoPE K | 固定 4-chunk 与公平 `8F` |
+| `motion_alloc_cam_4chunk` | 最多 4 / 平均每 chunk `2F` | projected camera score | cached RoPE K | 固定 4-chunk 与公平 `8F` |
 | `motion_alloc_cam_content_4chunk` | 同上 | `max(camera, content)` | cached RoPE K | 修复静止相机动态内容误压缩 |
 | `motion_alloc_cam_content_prerope_4chunk` | 同上 | 同上 | layer-0 pre-RoPE K | 去掉 temporal RoPE 对排序的污染 |
 
@@ -416,7 +417,8 @@ chunk；每个 chunk 保留 `2F`，因此历史充足时严格为 `4 × 2F = 8F`
 相机分数仍使用已经验证的双向二维多深度投影出界比例。12 个 non-anchor 的整数 token 数通过
 带单帧 `F` 上限的确定性 proportional water-filling 得到；最大余数规则处理整数舍入，保证总和
 严格等于 `4F`。若所有分数均为 0，则在所有 non-anchor 间均分，而不是把动态预算丢掉。历史
-不足 4 chunk 时，每个有效 chunk 仍使用 `2F`，不会为了填满物理 `8F` 重复或虚构历史 token。
+不足 4 chunk 时总预算仍为每个有效 chunk 平均 `2F`，不会为了填满物理 `8F` 重复或虚构历史
+token；单个 chunk 的实际长度仍可因全局竞争而高于或低于 `2F`。
 
 ### 8.2 动态内容补偿
 
