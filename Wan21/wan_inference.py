@@ -7,7 +7,7 @@ from torchvision import transforms
 from torchvision.io import write_video
 from einops import rearrange
 import torch.distributed as dist
-from torch.utils.data import DataLoader, SequentialSampler
+from torch.utils.data import DataLoader, SequentialSampler, Subset
 from torch.utils.data.distributed import DistributedSampler
 import json
 
@@ -42,6 +42,12 @@ parser.add_argument("--i2v", action="store_true", help="Whether to perform I2V (
 parser.add_argument("--sp_size", type=int, default=1, help="Sequence parallel size (1=disabled)")
 parser.add_argument("--trajectory", type=str, default=None, help="Camera trajectory string (e.g., 'w*19' for camera control)")
 parser.add_argument("--trajectory_path", type=str, default=None, help="Path to trajectory file (one trajectory string per line, aligned with data_path)")
+parser.add_argument("--prompt-start", type=int, default=0,
+                    help="Inclusive original prompt index for inference sharding")
+parser.add_argument("--prompt-end", type=int, default=None,
+                    help="Exclusive original prompt index for inference sharding")
+parser.add_argument("--append-output-manifests", action="store_true",
+                    help="Append shard records instead of truncating shared manifests")
 parser.add_argument("--dykv", action="store_true", help="Enable the complete dyKV long-horizon memory preset")
 parser.add_argument(
     "--dykv-case",
@@ -211,8 +217,23 @@ if args.i2v:
     dataset = TextImagePairDataset(args.data_path, transform=transform)
 else:
     dataset = TextDataset(prompt_path=args.data_path)
+full_num_prompts = len(dataset)
+prompt_start = int(args.prompt_start)
+prompt_end = full_num_prompts if args.prompt_end is None else int(args.prompt_end)
+if not 0 <= prompt_start <= prompt_end <= full_num_prompts:
+    raise ValueError(
+        f"invalid prompt shard [{prompt_start}, {prompt_end}) for "
+        f"{full_num_prompts} prompts"
+    )
+if prompt_start or prompt_end != full_num_prompts:
+    # TextDataset returns its original idx, so output names, seeds and
+    # trajectory lookup remain identical to an unsharded run.
+    dataset = Subset(dataset, range(prompt_start, prompt_end))
 num_prompts = len(dataset)
-print(f"Number of prompts: {num_prompts}")
+print(
+    f"Number of prompts: {num_prompts} "
+    f"(original indices [{prompt_start}, {prompt_end}))"
+)
 
 if dist.is_initialized() and args.sp_size <= 1:
     # Standard DP: split prompts across ranks
@@ -229,9 +250,10 @@ dataloader = DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=0, d
 if local_rank == 0:
     os.makedirs(args.output_folder, exist_ok=True)
     output_manifest_path = os.path.join(args.output_folder, "generation_manifest.jsonl")
-    open(output_manifest_path, "w", encoding="utf-8").close()
+    if not args.append_output_manifests:
+        open(output_manifest_path, "w", encoding="utf-8").close()
     dykv_events_path = os.path.join(args.output_folder, "dykv_summaries.jsonl")
-    if args.dykv:
+    if args.dykv and not args.append_output_manifests:
         open(dykv_events_path, "w", encoding="utf-8").close()
 
 if dist.is_initialized():
@@ -242,8 +264,9 @@ trajectory_list = None
 if args.trajectory_path:
     with open(args.trajectory_path, encoding="utf-8") as _f:
         trajectory_list = [line.strip() for line in _f if line.strip()]
-    assert len(trajectory_list) >= num_prompts, (
-        f"trajectory_path has {len(trajectory_list)} lines but need >= {num_prompts} prompts"
+    assert len(trajectory_list) >= prompt_end, (
+        f"trajectory_path has {len(trajectory_list)} lines but shard needs "
+        f"original index {prompt_end - 1}"
     )
 
 def encode(self, videos: torch.Tensor) -> torch.Tensor:

@@ -23,6 +23,9 @@ DYKV_CASE="${DYKV_CASE:-}"
 NUM_OUTPUT_FRAMES="${NUM_OUTPUT_FRAMES:-20}"
 SEED="${SEED:-0}"
 DRY_RUN="${DRY_RUN:-0}"
+PROMPT_START="${PROMPT_START:-0}"
+PROMPT_END="${PROMPT_END:-}"
+APPEND_OUTPUT_MANIFESTS="${APPEND_OUTPUT_MANIFESTS:-0}"
 
 if [ -z "$DYKV_CASE" ]; then
   if [ "$DYKV" = "1" ]; then
@@ -60,6 +63,9 @@ DYKV_ARGS=(--dykv-case "$DYKV_CASE")
 if [ "$DYKV" = "1" ]; then
   DYKV_ARGS+=(--dykv)
 fi
+SHARD_ARGS=(--prompt-start "$PROMPT_START")
+[ -n "$PROMPT_END" ] && SHARD_ARGS+=(--prompt-end "$PROMPT_END")
+[ "$APPEND_OUTPUT_MANIFESTS" = "1" ] && SHARD_ARGS+=(--append-output-manifests)
 
 export SP_SIZE=$SP_SIZE
 COMMAND=(torchrun \
@@ -76,6 +82,7 @@ COMMAND=(torchrun \
   --num_output_frames "$NUM_OUTPUT_FRAMES" \
   --sp_size $SP_SIZE \
   --seed "$SEED" \
+  "${SHARD_ARGS[@]}" \
   "${DYKV_ARGS[@]}" \
   "${TRAJ_ARGS[@]}")
 
