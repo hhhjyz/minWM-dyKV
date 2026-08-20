@@ -49,6 +49,8 @@ parser.add_argument(
     default=None,
     help="Registered experiment preset (defaults to baseline, or yaw_intrinsics with --dykv)",
 )
+parser.add_argument("--capture-attention", type=str, default=None,
+                    help="Enable attention capture and save to this path. Format: 'output.json:layer_indices' (e.g., 'attn.json:0,5,10,15,20,25,29')")
 args = parser.parse_args()
 
 # Initialize distributed inference
@@ -118,12 +120,15 @@ config.dykv_packing_mode = dykv_case.packing_mode
 config.dykv_retrieval_layout = dykv_case.retrieval_layout
 config.dykv_retrieval_order = dykv_case.retrieval_order
 config.dykv_motion_geometry_mode = dykv_case.motion_geometry_mode
+config.dykv_motion_allocation_mode = dykv_case.motion_allocation_mode
+config.dykv_novelty_feature_mode = dykv_case.novelty_feature_mode
 config.dykv_projection_scene_scale = 8.0
 config.model_kwargs.sink_size = dykv_case.sink_frames
 config.model_kwargs.tri_region_rope_enabled = True
 config.model_kwargs.dykv_memory_frames = dykv_case.memory_frames
 config.model_kwargs.dykv_local_frames = dykv_case.local_frames
 config.model_kwargs.dykv_rope_train_frames = 20
+config.model_kwargs.dykv_retrieval_rope_mode = dykv_case.retrieval_rope_mode
 
 if args.dykv:
     chunk_frames = int(config.get("num_frame_per_block", 1))
@@ -300,6 +305,12 @@ def record_generation(
         "dykv_motion_geometry_mode": str(
             getattr(config, "dykv_motion_geometry_mode", "projected_multidepth")
         ),
+        "dykv_motion_allocation_mode": str(
+            getattr(config, "dykv_motion_allocation_mode", "legacy")
+        ),
+        "dykv_novelty_feature_mode": str(
+            getattr(config, "dykv_novelty_feature_mode", "cached_roped_k")
+        ),
         "dykv_projection_scene_scale": float(
             getattr(config, "dykv_projection_scene_scale", 8.0)
         ),
@@ -312,6 +323,7 @@ def record_generation(
             int(config.tri_region_local_frames),
         ],
         "tri_region_rope_train_frames": int(config.tri_region_rope_train_frames),
+        "retrieval_rope_mode": str(dykv_case.retrieval_rope_mode),
         "output_path": os.path.abspath(output_path),
         "status": status,
     }
@@ -323,6 +335,16 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
     idx = batch_data['idx'].item()
     sample_seed = derive_sample_seed(args.seed, idx)
     pipeline_seed = derive_pipeline_seed(sample_seed)
+
+    if args.capture_attention and local_rank == 0:
+        from wan.modules.causal_model import _attn_capture
+        _cap_path, _, _cap_layers_str = args.capture_attention.partition(":")
+        _cap_layers = set(int(x) for x in _cap_layers_str.split(",")) if _cap_layers_str else None
+        _attn_capture["enabled"] = True
+        _attn_capture["layer_indices"] = _cap_layers
+        _attn_capture["capture_interval"] = 10
+        _attn_capture["records"] = []
+        _attn_capture["call_counts"] = {}
 
     if isinstance(batch_data, dict):
         batch = batch_data
@@ -460,6 +482,7 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
                 int(config.tri_region_local_frames),
             ],
             "tri_region_rope_train_frames": int(config.tri_region_rope_train_frames),
+            "retrieval_rope_mode": str(dykv_case.retrieval_rope_mode),
             "summary": getattr(pipeline, "last_dykv_summary", {}),
         }
         with open(dykv_events_path, "a", encoding="utf-8") as _f:
@@ -499,6 +522,24 @@ for i, batch_data in tqdm(enumerate(dataloader), disable=(local_rank != 0)):
         )
     if dist.is_initialized():
         dist.barrier()
+
+    if args.capture_attention and local_rank == 0:
+        from wan.modules.causal_model import _attn_capture
+        _cap_path = args.capture_attention.partition(":")[0]
+        _cap_out = os.path.join(args.output_folder, f"attention_capture_{idx:05d}.json")
+        with open(_cap_out, "w", encoding="utf-8") as _f:
+            json.dump({
+                "prompt_index": int(idx),
+                "prompt": prompt,
+                "trajectory": traj_str or "",
+                "dykv_case": str(config.dykv_case),
+                "num_records": len(_attn_capture["records"]),
+                "records": _attn_capture["records"],
+            }, _f)
+        print(f"[capture] Saved {len(_attn_capture['records'])} attention records to {_cap_out}")
+        _attn_capture["enabled"] = False
+        _attn_capture["records"] = []
+        _attn_capture["call_counts"] = {}
 
 
 # Aggregate latency on rank 0 (drop the first prompt's warmup).

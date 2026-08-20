@@ -30,6 +30,9 @@ class DyKVCase:
     motion_geometry_mode: str = "projected_multidepth"
     sink_mode: str = FIXED_SINK_MODE
     sink_frames: int = FIXED_SINK_FRAMES
+    retrieval_rope_mode: str = "fixed_slot"
+    motion_allocation_mode: str = "legacy"
+    novelty_feature_mode: str = "cached_roped_k"
 
     @property
     def local_frames(self) -> int:
@@ -57,10 +60,34 @@ DYKV_CASES = {
             compression_keep_ratio=1.0,
         ),
         DyKVCase(
+            "baseline_honest",
+            False,
+            "none",
+            "baseline + honest 绝对位置 RoPE（local 和 query 不 rebase，sink 相对距离随长度增长）",
+            retrieval_mode="none",
+            retrieval_frames=0,
+            compression_keep_ratio=1.0,
+            retrieval_rope_mode="honest",
+        ),
+        DyKVCase(
             "retrieval_no_compression",
             True,
             "none",
             "按相机内参进行 FOV 检索，但不压缩检索 KV",
+        ),
+        DyKVCase(
+            "retrieval_no_compression_honest",
+            True,
+            "none",
+            "无压缩 FOV 检索 + honest 绝对位置 RoPE（不 rebase，相对距离精确）",
+            retrieval_rope_mode="honest",
+        ),
+        DyKVCase(
+            "retrieval_no_compression_age",
+            True,
+            "none",
+            "无压缩 FOV 检索 + age-ordered 检索 RoPE（按真实 age 排序映射到 4-11）",
+            retrieval_rope_mode="age_ordered",
         ),
         DyKVCase(
             "retrieval_no_compression_relevance_order",
@@ -134,6 +161,16 @@ DYKV_CASES = {
             compression_keep_ratio=1.0 / 3.0,
         ),
         DyKVCase(
+            "retr16_compression_r033_honest",
+            True,
+            "fixed_novelty",
+            "retr16_compression_r033 + honest 绝对位置 RoPE",
+            packing_mode="fixed_worldkv",
+            retrieval_frames=16,
+            compression_keep_ratio=1.0 / 3.0,
+            retrieval_rope_mode="honest",
+        ),
+        DyKVCase(
             "motion_novelty_sphere_unfilled",
             True,
             "motion_novelty",
@@ -142,6 +179,17 @@ DYKV_CASES = {
             retrieval_frames=16,
             retrieval_layout="flat_source_ordered",
             motion_geometry_mode="sphere_fov",
+        ),
+        DyKVCase(
+            "motion_novelty_sphere_unfilled_honest",
+            True,
+            "motion_novelty",
+            "motion_novelty_sphere_unfilled + honest 绝对位置 RoPE",
+            packing_mode="motion_novelty_flat",
+            retrieval_frames=16,
+            retrieval_layout="flat_source_ordered",
+            motion_geometry_mode="sphere_fov",
+            retrieval_rope_mode="honest",
         ),
         DyKVCase(
             "motion_novelty_slot_capped",
@@ -153,6 +201,16 @@ DYKV_CASES = {
             retrieval_layout="source_ordered",
         ),
         DyKVCase(
+            "motion_novelty_slot_capped_honest",
+            True,
+            "motion_novelty",
+            "motion_novelty_slot_capped + honest 绝对位置 RoPE",
+            packing_mode="motion_novelty_slot_capped",
+            retrieval_frames=16,
+            retrieval_layout="source_ordered",
+            retrieval_rope_mode="honest",
+        ),
+        DyKVCase(
             "motion_novelty_unfilled",
             True,
             "motion_novelty",
@@ -160,6 +218,16 @@ DYKV_CASES = {
             packing_mode="motion_novelty_flat",
             retrieval_frames=16,
             retrieval_layout="flat_source_ordered",
+        ),
+        DyKVCase(
+            "motion_novelty_unfilled_honest",
+            True,
+            "motion_novelty",
+            "motion_novelty_unfilled + honest 绝对位置 RoPE",
+            packing_mode="motion_novelty_flat",
+            retrieval_frames=16,
+            retrieval_layout="flat_source_ordered",
+            retrieval_rope_mode="honest",
         ),
         DyKVCase(
             "motion_novelty_backfill",
@@ -171,6 +239,16 @@ DYKV_CASES = {
             retrieval_layout="flat_source_ordered",
         ),
         DyKVCase(
+            "motion_novelty_backfill_honest",
+            True,
+            "motion_novelty",
+            "motion_novelty_backfill + honest 绝对位置 RoPE",
+            packing_mode="motion_novelty_backfill",
+            retrieval_frames=16,
+            retrieval_layout="flat_source_ordered",
+            retrieval_rope_mode="honest",
+        ),
+        DyKVCase(
             "motion_novelty_duplicate",
             True,
             "motion_novelty",
@@ -178,6 +256,47 @@ DYKV_CASES = {
             packing_mode="motion_novelty_duplicate",
             retrieval_frames=16,
             retrieval_layout="flat_source_ordered",
+        ),
+        DyKVCase(
+            "motion_novelty_duplicate_honest",
+            True,
+            "motion_novelty",
+            "motion_novelty_duplicate + honest 绝对位置 RoPE",
+            packing_mode="motion_novelty_duplicate",
+            retrieval_frames=16,
+            retrieval_layout="flat_source_ordered",
+            retrieval_rope_mode="honest",
+        ),
+        DyKVCase(
+            "motion_alloc_cam_4chunk",
+            True,
+            "motion_novelty",
+            "固定检索 4 chunk/8F；anchor 完整，剩余 4F 按相机运动比例连续分配",
+            packing_mode="motion_alloc_4chunk",
+            retrieval_frames=16,
+            retrieval_layout="flat_source_ordered",
+            motion_allocation_mode="camera_budgeted",
+        ),
+        DyKVCase(
+            "motion_alloc_cam_content_4chunk",
+            True,
+            "motion_novelty",
+            "固定 4 chunk/8F；按 max(相机运动, RoPE-free V 内容变化) 分配",
+            packing_mode="motion_alloc_4chunk",
+            retrieval_frames=16,
+            retrieval_layout="flat_source_ordered",
+            motion_allocation_mode="camera_content_budgeted",
+        ),
+        DyKVCase(
+            "motion_alloc_cam_content_prerope_4chunk",
+            True,
+            "motion_novelty",
+            "camera+content 固定预算，并用 layer-0 pre-RoPE K 决定保留 token",
+            packing_mode="motion_alloc_4chunk",
+            retrieval_frames=16,
+            retrieval_layout="flat_source_ordered",
+            motion_allocation_mode="camera_content_budgeted",
+            novelty_feature_mode="pre_rope_k",
         ),
     )
 }

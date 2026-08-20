@@ -33,6 +33,64 @@ except ImportError as _e:
     _CLEANCODE_IMPORT_ERROR = _e
 
 
+_attn_capture = {
+    "enabled": False,
+    "output_path": None,
+    "layer_indices": None,
+    "call_counts": {},
+    "capture_interval": 1,
+    "records": [],
+}
+
+
+def _compute_frame_attention(query, key, *, frame_tokens, sink_frames, local_frames,
+                             num_heads, head_dim, chunk_size=200):
+    """Compute per-frame average attention distribution on CPU.
+
+    Returns (frame_attention [H, Qf, Kf], region_sizes [3]).
+    frame_attention[h, qf, kf] is the average attention weight from
+    query frame qf to KV frame kf under head h.
+    """
+    B, Lq, H, D = query.shape
+    _, Lk, _, _ = key.shape
+    assert B == 1, "attention capture requires batch size 1"
+    qf = Lq // frame_tokens
+    scale = 1.0 / math.sqrt(head_dim)
+
+    sink_tokens = sink_frames * frame_tokens
+    local_tokens = local_frames * frame_tokens
+    retrieval_tokens = max(0, Lk - sink_tokens - local_tokens)
+    if retrieval_tokens < 0:
+        local_tokens = Lk - sink_tokens
+
+    kf_sink = sink_frames
+    kf_retr = retrieval_tokens // frame_tokens
+    kf_local = local_tokens // frame_tokens
+    kf = kf_sink + kf_retr + kf_local
+    region_sizes = [kf_sink, kf_retr, kf_local]
+
+    q = query[0].float()
+    k = key[0].float()
+
+    frame_attn = torch.zeros(H, qf, kf, dtype=torch.float32, device=q.device)
+
+    for qi in range(qf):
+        q_start = qi * frame_tokens
+        for cs in range(0, frame_tokens, chunk_size):
+            ce = min(cs + chunk_size, frame_tokens)
+            q_chunk = q[q_start + cs:q_start + ce, :, :]
+            scores = torch.einsum('qhd,khd->hqk', q_chunk, k) * scale
+            probs = torch.softmax(scores, dim=2)
+            for kj in range(kf):
+                ks = kj * frame_tokens
+                ke = min(ks + frame_tokens, Lk)
+                frame_attn[:, qi, kj] += probs[:, :, ks:ke].sum(dim=(1, 2))
+            del scores, probs
+
+    frame_attn /= frame_tokens
+    return frame_attn, region_sizes
+
+
 def _require_cleancode_infra(context: str = ""):
     """Hard-fail if SP > 1 but CleanCode SP infra failed to import.
 
@@ -109,6 +167,7 @@ class CausalWanSelfAttention(nn.Module):
                  dykv_memory_frames=8,
                  dykv_local_frames=8,
                  dykv_rope_train_frames=20,
+                 dykv_retrieval_rope_mode="fixed_slot",
                  qk_norm=True,
                  eps=1e-6):
         assert dim % num_heads == 0
@@ -129,6 +188,7 @@ class CausalWanSelfAttention(nn.Module):
             memory_frames=int(dykv_memory_frames),
             local_frames=int(dykv_local_frames),
             rope_train_frames=int(dykv_rope_train_frames),
+            retrieval_rope_mode=str(dykv_retrieval_rope_mode),
         )
         self.qk_norm = qk_norm
         self.eps = eps
@@ -383,18 +443,25 @@ class CausalWanSelfAttention(nn.Module):
                     kv_cache["k"][:, sink_tokens + num_evicted_tokens:sink_tokens + num_evicted_tokens + num_rolled_tokens].clone()
                 kv_cache["v"][:, sink_tokens:sink_tokens + num_rolled_tokens] = \
                     kv_cache["v"][:, sink_tokens + num_evicted_tokens:sink_tokens + num_evicted_tokens + num_rolled_tokens].clone()
+                if "content_k" in kv_cache:
+                    kv_cache["content_k"][:, sink_tokens:sink_tokens + num_rolled_tokens] = \
+                        kv_cache["content_k"][:, sink_tokens + num_evicted_tokens:sink_tokens + num_evicted_tokens + num_rolled_tokens].clone()
                 # Insert the new keys/values at the end
                 local_end_index = kv_cache["local_end_index"].item() + current_end - \
                     kv_cache["global_end_index"].item() - num_evicted_tokens
                 local_start_index = local_end_index - num_new_tokens
                 kv_cache["k"][:, local_start_index:local_end_index] = roped_key
                 kv_cache["v"][:, local_start_index:local_end_index] = v
+                if "content_k" in kv_cache:
+                    kv_cache["content_k"][:, local_start_index:local_end_index] = k
             else:
                 # Assign new keys/values directly up to current_end
                 local_end_index = kv_cache["local_end_index"].item() + current_end - kv_cache["global_end_index"].item()
                 local_start_index = local_end_index - num_new_tokens
                 kv_cache["k"][:, local_start_index:local_end_index] = roped_key
                 kv_cache["v"][:, local_start_index:local_end_index] = v
+                if "content_k" in kv_cache:
+                    kv_cache["content_k"][:, local_start_index:local_end_index] = k
             if tri_region_active:
                 attention_k, attention_v = compose_tri_region(
                     kv_cache,
@@ -412,6 +479,30 @@ class CausalWanSelfAttention(nn.Module):
                 attention_k = kv_cache["k"][:, max(0, local_end_index - self.max_attention_size):local_end_index]
                 attention_v = kv_cache["v"][:, max(0, local_end_index - self.max_attention_size):local_end_index]
             x = attention(roped_query, attention_k, attention_v)
+            if _attn_capture["enabled"] and tri_region_active:
+                _layer_idx = getattr(self, "_capture_layer_idx", -1)
+                _wanted = _attn_capture["layer_indices"]
+                if _wanted is None or _layer_idx in _wanted:
+                    _cf = int(current_end // frame_seqlen)
+                    _key = (_cf, _layer_idx)
+                    _count = _attn_capture["call_counts"].get(_key, 0)
+                    _attn_capture["call_counts"][_key] = _count + 1
+                    if _count % _attn_capture["capture_interval"] == 0:
+                        _fa, _rs = _compute_frame_attention(
+                            roped_query, attention_k,
+                            frame_tokens=frame_seqlen,
+                            sink_frames=self.dykv_spec.sink_frames,
+                            local_frames=self.dykv_spec.local_frames,
+                            num_heads=self.num_heads,
+                            head_dim=self.head_dim,
+                        )
+                        _attn_capture["records"].append({
+                            "layer_idx": _layer_idx,
+                            "call_count": _count,
+                            "current_frame": _cf,
+                            "region_sizes": _rs,
+                            "frame_attention": _fa.tolist(),
+                        })
             kv_cache["global_end_index"].fill_(current_end)
             kv_cache["local_end_index"].fill_(local_end_index)
 
@@ -493,6 +584,7 @@ class CausalWanAttentionBlock(nn.Module):
                  dykv_memory_frames=8,
                  dykv_local_frames=8,
                  dykv_rope_train_frames=20,
+                 dykv_retrieval_rope_mode="fixed_slot",
                  qk_norm=True,
                  cross_attn_norm=False,
                  eps=1e-6):
@@ -517,6 +609,7 @@ class CausalWanAttentionBlock(nn.Module):
             dykv_memory_frames=dykv_memory_frames,
             dykv_local_frames=dykv_local_frames,
             dykv_rope_train_frames=dykv_rope_train_frames,
+            dykv_retrieval_rope_mode=dykv_retrieval_rope_mode,
             qk_norm=qk_norm,
             eps=eps,
         )
@@ -686,6 +779,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
                  dykv_memory_frames=8,
                  dykv_local_frames=8,
                  dykv_rope_train_frames=20,
+                 dykv_retrieval_rope_mode="fixed_slot",
                  qk_norm=True,
                  cross_attn_norm=True,
                  eps=1e-6):
@@ -780,12 +874,15 @@ class CausalWanModel(ModelMixin, ConfigMixin):
                 dykv_memory_frames=dykv_memory_frames,
                 dykv_local_frames=dykv_local_frames,
                 dykv_rope_train_frames=dykv_rope_train_frames,
+                dykv_retrieval_rope_mode=dykv_retrieval_rope_mode,
                 qk_norm=qk_norm,
                 cross_attn_norm=cross_attn_norm,
                 eps=eps,
             )
             for _ in range(num_layers)
         ])
+        for _i, _block in enumerate(self.blocks):
+            _block.self_attn._capture_layer_idx = _i
 
         # head
         self.head = CausalHead(dim, out_dim, patch_size, eps)

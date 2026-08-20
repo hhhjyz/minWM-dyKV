@@ -66,6 +66,12 @@ class CausalInferencePipeline(torch.nn.Module):
                 projection_scene_scale=float(
                     getattr(args, "dykv_projection_scene_scale", 8.0)
                 ),
+                motion_allocation_mode=str(
+                    getattr(args, "dykv_motion_allocation_mode", "legacy")
+                ),
+                novelty_feature_mode=str(
+                    getattr(args, "dykv_novelty_feature_mode", "cached_roped_k")
+                ),
             ),
             chunk_frames=self.num_frame_per_block,
         )
@@ -433,13 +439,16 @@ class CausalInferencePipeline(torch.nn.Module):
             # Use the default KV cache size
             kv_cache_size = 31200
 
-        for _ in range(self.num_transformer_blocks):
-            kv_cache1.append({
+        for layer_index in range(self.num_transformer_blocks):
+            cache = {
                 "k": torch.zeros([batch_size, kv_cache_size, num_heads, 128], dtype=dtype, device=device),
                 "v": torch.zeros([batch_size, kv_cache_size, num_heads, 128], dtype=dtype, device=device),
                 "global_end_index": torch.tensor([0], dtype=torch.long, device=device),
                 "local_end_index": torch.tensor([0], dtype=torch.long, device=device)
-            })
+            }
+            if layer_index == 0 and self.dykv.config.novelty_feature_mode == "pre_rope_k":
+                cache["content_k"] = torch.zeros_like(cache["k"])
+            kv_cache1.append(cache)
 
         self.kv_cache1 = kv_cache1  # always store the clean cache
 

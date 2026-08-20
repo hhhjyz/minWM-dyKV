@@ -55,6 +55,9 @@ class MotionFramePlan:
     projected_backward_overlaps: tuple[float, ...]
     projected_symmetric_overlaps: tuple[float, ...]
     projection_depths: tuple[float, ...]
+    camera_score: float = 0.0
+    content_score: float = 0.0
+    allocation_score: float = 0.0
     virtual_slot_id: int = -1
 
     @property
@@ -154,10 +157,22 @@ def _relative_motion(
     return rotation, translation
 
 
-def _novelty_order(block: MemoryBlock, *, frame_tokens: int) -> tuple[torch.Tensor, ...]:
+def _novelty_order(
+    block: MemoryBlock,
+    *,
+    frame_tokens: int,
+    novelty_feature_mode: str = "cached_roped_k",
+) -> tuple[torch.Tensor, ...]:
     if not block.layers:
         raise ValueError("motion novelty requires stored KV layers")
-    layer0 = block.layers[0].k.detach().to(device="cpu")
+    if novelty_feature_mode == "pre_rope_k":
+        if block.novelty_k is None:
+            raise ValueError("pre-RoPE novelty requires archived layer-0 content_k")
+        layer0 = block.novelty_k.detach().to(device="cpu")
+    elif novelty_feature_mode == "cached_roped_k":
+        layer0 = block.layers[0].k.detach().to(device="cpu")
+    else:
+        raise ValueError(f"unsupported novelty feature mode: {novelty_feature_mode}")
     expected = int(block.frame_count) * int(frame_tokens)
     if layer0.ndim != 4 or int(layer0.shape[1]) != expected:
         raise ValueError("motion novelty requires complete frame-aligned KV")
@@ -190,6 +205,7 @@ def build_motion_chunk_plan(
     motion_geometry_mode: str = PROJECTED_MULTIDEPTH_MODE,
     probe_points: torch.Tensor | None = None,
     radius: float = 8.0,
+    novelty_feature_mode: str = "cached_roped_k",
 ) -> MotionChunkPlan:
     if int(block.frame_count) != 4:
         raise ValueError("motion novelty requires four-frame chunks")
@@ -207,7 +223,11 @@ def build_motion_chunk_plan(
             raise ValueError("motion novelty projected spatial shape is invalid")
     elif probe_points is None:
         raise ValueError("motion novelty sphere geometry requires probe points")
-    orders = _novelty_order(block, frame_tokens=frame_tokens)
+    orders = _novelty_order(
+        block,
+        frame_tokens=frame_tokens,
+        novelty_feature_mode=novelty_feature_mode,
+    )
     frames = []
     for frame_offset in range(4):
         rotation, translation_xyz = _relative_motion(poses[0], poses[frame_offset])
@@ -277,6 +297,8 @@ def build_motion_chunk_plan(
                 projected_backward_overlaps=projected_backward,
                 projected_symmetric_overlaps=projected_symmetric,
                 projection_depths=projection_depths,
+                camera_score=keep_ratio if frame_offset else 0.0,
+                allocation_score=keep_ratio if frame_offset else 0.0,
             )
         )
     distance = float(retrieval_distance)
@@ -568,6 +590,273 @@ def _capped_slots(
             loads[bin_index] += frame.base_token_count
     assigned.sort(key=lambda frame: frame.source_frame_id)
     return tuple(assigned), tuple(loads)
+
+
+def _content_change_scores(
+    block: MemoryBlock,
+    *,
+    frame_tokens: int,
+) -> tuple[float, ...]:
+    """Measure per-frame scene change with RoPE-free layer-0 values.
+
+    V is deliberately used here: it separates the content-motion fix from the
+    later pre-RoPE-K novelty ablation and compares corresponding spatial tokens
+    to the chunk anchor without injecting temporal phase.
+    """
+
+    if not block.layers:
+        raise ValueError("content allocation requires stored KV layers")
+    value = block.layers[0].v.detach().to(device="cpu").float()
+    expected = int(block.frame_count) * int(frame_tokens)
+    if value.ndim != 4 or int(value.shape[1]) != expected:
+        raise ValueError("content allocation requires complete frame-aligned V")
+    frames = value.reshape(
+        value.shape[0], int(block.frame_count), int(frame_tokens), -1
+    )
+    anchor = frames[:, 0]
+    eps = torch.finfo(torch.float32).eps
+    output = [0.0]
+    for frame_index in range(1, int(block.frame_count)):
+        current = frames[:, frame_index]
+        cosine = (current * anchor).sum(dim=-1) / (
+            torch.linalg.vector_norm(current, dim=-1)
+            * torch.linalg.vector_norm(anchor, dim=-1)
+            + eps
+        )
+        # Cosine distance is mapped to [0, 1], then averaged over batch/tokens.
+        score = ((1.0 - cosine) * 0.5).clamp(0.0, 1.0).mean()
+        output.append(float(score))
+    return tuple(output)
+
+
+def _weighted_capped_allocation(
+    weights: Sequence[float],
+    *,
+    capacity: int,
+    total: int,
+) -> list[int]:
+    """Deterministic proportional allocation with an exact integer total."""
+
+    capacity = max(0, int(capacity))
+    total = min(max(0, int(total)), len(weights) * capacity)
+    output = [0] * len(weights)
+    active = set(range(len(weights)))
+    remaining = total
+    clean_weights = [
+        float(value) if math.isfinite(float(value)) and float(value) > 0.0 else 0.0
+        for value in weights
+    ]
+    while remaining and active:
+        positive = [index for index in active if clean_weights[index] > 0.0]
+        if not positive:
+            capacities = [capacity - output[index] for index in sorted(active)]
+            allocation = _largest_remainder_allocation(capacities, remaining)
+            for index, add in zip(sorted(active), allocation):
+                output[index] += add
+            remaining = 0
+            break
+        weight_sum = sum(clean_weights[index] for index in positive)
+        quotas = {
+            index: remaining * clean_weights[index] / weight_sum
+            for index in positive
+        }
+        saturated = [
+            index
+            for index in positive
+            if quotas[index] >= capacity - output[index]
+        ]
+        if saturated:
+            for index in saturated:
+                add = capacity - output[index]
+                output[index] += add
+                remaining -= add
+                active.remove(index)
+            continue
+        floors = {index: int(math.floor(quotas[index])) for index in positive}
+        for index, add in floors.items():
+            output[index] += add
+            remaining -= add
+        order = sorted(
+            positive,
+            key=lambda index: (-(quotas[index] - floors[index]), index),
+        )
+        for index in order:
+            if not remaining:
+                break
+            if output[index] < capacity:
+                output[index] += 1
+                remaining -= 1
+        if remaining:
+            # Only possible through numeric corner cases; let zero-weight or
+            # unsaturated frames consume the residual on the next iteration.
+            active = {index for index in active if output[index] < capacity}
+        else:
+            break
+    if sum(output) != total:
+        raise RuntimeError("weighted motion allocation did not reach its budget")
+    return output
+
+
+def build_motion_alloc_4chunk_plan(
+    bank: DyKVBank,
+    ranked_block_indices: Sequence[int],
+    ranked_distances: Sequence[float],
+    *,
+    scene_scale: float,
+    frame_tokens: int,
+    memory_frames: int,
+    sink_frames: int,
+    allocation_mode: str,
+    novelty_feature_mode: str,
+    motion_geometry_mode: str = PROJECTED_MULTIDEPTH_MODE,
+    probe_points: torch.Tensor | None = None,
+    radius: float = 8.0,
+    candidate_block_indices: Sequence[int] | None = None,
+) -> MotionRetrievalPlan:
+    """Select at most four chunks and allocate an exact 2F budget per chunk.
+
+    Every anchor remains complete.  The remaining F per selected chunk is a
+    shared budget across all non-anchor frames, so latents may cross virtual
+    slot boundaries while the final payload remains in original KV order.
+    """
+
+    if len(ranked_block_indices) != len(ranked_distances):
+        raise ValueError("motion allocation ranking and distances must align")
+    if allocation_mode not in {"camera_budgeted", "camera_content_budgeted"}:
+        raise ValueError(f"unsupported motion allocation mode: {allocation_mode}")
+    all_candidates = tuple(
+        int(index)
+        for index in (
+            ranked_block_indices
+            if candidate_block_indices is None
+            else candidate_block_indices
+        )
+    )
+    ranked_set = {int(index) for index in ranked_block_indices}
+    invalid = [index for index in all_candidates if index not in ranked_set]
+    chunks: list[MotionChunkPlan] = []
+    content_by_block: dict[int, tuple[float, ...]] = {}
+    for block_index, distance in zip(ranked_block_indices, ranked_distances):
+        if len(chunks) == 4:
+            break
+        try:
+            block = bank.blocks[int(block_index)]
+            chunk = build_motion_chunk_plan(
+                block,
+                block_index=int(block_index),
+                retrieval_distance=float(distance),
+                scene_scale=scene_scale,
+                frame_tokens=frame_tokens,
+                motion_geometry_mode=motion_geometry_mode,
+                probe_points=probe_points,
+                radius=radius,
+                novelty_feature_mode=novelty_feature_mode,
+            )
+            if allocation_mode == "camera_content_budgeted":
+                content_by_block[int(block_index)] = _content_change_scores(
+                    block, frame_tokens=frame_tokens
+                )
+        except (RuntimeError, ValueError):
+            invalid.append(int(block_index))
+            continue
+        chunks.append(chunk)
+
+    nonanchors = [frame for chunk in chunks for frame in chunk.frames[1:]]
+    weights = []
+    for frame in nonanchors:
+        content_score = (
+            content_by_block[frame.block_index][frame.frame_offset]
+            if allocation_mode == "camera_content_budgeted"
+            else 0.0
+        )
+        weights.append(max(frame.camera_score, content_score))
+    nonanchor_budget = len(chunks) * int(frame_tokens)
+    allocations = _weighted_capped_allocation(
+        weights, capacity=frame_tokens, total=nonanchor_budget
+    )
+    allocated_by_source: dict[int, MotionFramePlan] = {}
+    for frame, keep_tokens, content_score, score in zip(
+        nonanchors,
+        allocations,
+        [
+            content_by_block[frame.block_index][frame.frame_offset]
+            if allocation_mode == "camera_content_budgeted"
+            else 0.0
+            for frame in nonanchors
+        ],
+        weights,
+    ):
+        full_order = torch.cat(
+            (frame.base_indices_in_selection_order, frame.omitted_indices_in_novelty_order)
+        )
+        selection = full_order[:keep_tokens].clone()
+        allocated_by_source[frame.source_frame_id] = replace(
+            frame,
+            keep_ratio=float(keep_tokens) / float(frame_tokens),
+            base_indices=selection.sort().values,
+            base_indices_in_selection_order=selection,
+            omitted_indices_in_novelty_order=full_order[keep_tokens:].clone(),
+            content_score=float(content_score),
+            allocation_score=float(score),
+        )
+
+    allocated_chunks = []
+    for chunk in chunks:
+        frames = (chunk.frames[0],) + tuple(
+            allocated_by_source[frame.source_frame_id] for frame in chunk.frames[1:]
+        )
+        allocated_chunks.append(replace(chunk, frames=frames))
+    source_frames = sorted(
+        (frame for chunk in allocated_chunks for frame in chunk.frames),
+        key=lambda frame: frame.source_frame_id,
+    )
+    lengths = tuple(frame.base_token_count for frame in source_frames)
+    assigned_frames, slot_loads = _reference_slots(
+        source_frames,
+        lengths,
+        frame_tokens=frame_tokens,
+        sink_frames=sink_frames,
+        memory_frames=memory_frames,
+    )
+    assigned_by_source = {frame.source_frame_id: frame for frame in assigned_frames}
+    assigned_chunks = tuple(
+        replace(
+            chunk,
+            frames=tuple(assigned_by_source[frame.source_frame_id] for frame in chunk.frames),
+        )
+        for chunk in allocated_chunks
+    )
+    assigned_source_frames = tuple(
+        sorted(
+            (frame for chunk in assigned_chunks for frame in chunk.frames),
+            key=lambda frame: frame.source_frame_id,
+        )
+    )
+    used = sum(frame.base_token_count for frame in assigned_source_frames)
+    expected = len(assigned_chunks) * 2 * int(frame_tokens)
+    if used != expected:
+        raise RuntimeError("fixed four-chunk motion allocation violated its exact budget")
+    segments = tuple(_base_segments(assigned_source_frames))
+    return MotionRetrievalPlan(
+        chunks=assigned_chunks,
+        selected_block_indices=tuple(chunk.block_index for chunk in assigned_chunks),
+        candidate_block_indices=all_candidates,
+        geometry_invalid_block_indices=tuple(dict.fromkeys(invalid)),
+        token_budget=int(memory_frames) * int(frame_tokens),
+        base_used_tokens=used,
+        fill_target_tokens=used,
+        reference_frame_lengths=lengths,
+        slot_token_loads=slot_loads,
+        retrieval_layout=FLAT_SOURCE_ORDERED_LAYOUT,
+        fill_mode=allocation_mode,
+        segments=segments,
+        unique_backfill_tokens_per_frame=(0,) * len(assigned_source_frames),
+        duplicate_tokens_per_frame=(0,) * len(assigned_source_frames),
+        duplicate_source_block_indices=(),
+        max_source_token_multiplicity=1 if segments else 0,
+        motion_geometry_mode=str(motion_geometry_mode),
+        projection_scene_scale=float(scene_scale),
+    )
 
 
 def build_motion_retrieval_plan(
@@ -868,6 +1157,15 @@ def materialize_motion_retrieval(
                 ],
                 "motion_keep_ratios": [
                     frame.keep_ratio for frame in diagnostic_frames
+                ],
+                "motion_camera_scores": [
+                    frame.camera_score for frame in diagnostic_frames
+                ],
+                "motion_content_scores": [
+                    frame.content_score for frame in diagnostic_frames
+                ],
+                "motion_allocation_scores": [
+                    frame.allocation_score for frame in diagnostic_frames
                 ],
                 "relative_rotation_degrees": [
                     frame.relative_rotation_degrees for frame in diagnostic_frames

@@ -4,6 +4,7 @@ import pathlib
 import sys
 import types
 import unittest
+from dataclasses import replace
 
 import torch
 
@@ -378,6 +379,102 @@ class DyKVMotionNoveltyTest(unittest.TestCase):
         self.assertEqual(
             [duplicate_by_source[frame.source_frame_id] for frame in repeat_chunk.frames],
             expected_quotas,
+        )
+
+    def test_camera_allocation_selects_exactly_four_chunks_and_fills_8f(self):
+        frame_tokens = 40
+        bank = _bank([(0, 10, 20, 30)] * 5, frame_tokens=frame_tokens)
+        plan = motion.build_motion_alloc_4chunk_plan(
+            bank,
+            list(range(5)),
+            [0.01 * index for index in range(5)],
+            scene_scale=8.0,
+            frame_tokens=frame_tokens,
+            memory_frames=8,
+            sink_frames=4,
+            allocation_mode="camera_budgeted",
+            novelty_feature_mode="cached_roped_k",
+        )
+
+        self.assertEqual(plan.selected_block_indices, (0, 1, 2, 3))
+        self.assertEqual(plan.base_used_tokens, 8 * frame_tokens)
+        self.assertEqual(sum(plan.slot_token_loads), 8 * frame_tokens)
+        self.assertEqual(
+            sum(frame.base_token_count for frame in plan.frames if frame.frame_offset == 0),
+            4 * frame_tokens,
+        )
+        self.assertEqual(
+            sum(frame.base_token_count for frame in plan.frames if frame.frame_offset != 0),
+            4 * frame_tokens,
+        )
+
+    def test_content_score_prevents_static_camera_dynamic_frame_from_zeroing(self):
+        frame_tokens = 24
+        bank = _bank([(0, 0, 0, 0)] * 4, frame_tokens=frame_tokens)
+        block = bank.blocks[0]
+        layer = block.layers[0]
+        value = torch.ones_like(layer.v)
+        value[:, frame_tokens:2 * frame_tokens] = -1.0
+        bank.blocks[0] = replace(block, layers=(replace(layer, v=value),))
+        common = dict(
+            bank=bank,
+            ranked_block_indices=list(range(4)),
+            ranked_distances=[0.1, 0.2, 0.3, 0.4],
+            scene_scale=8.0,
+            frame_tokens=frame_tokens,
+            memory_frames=8,
+            sink_frames=4,
+            novelty_feature_mode="cached_roped_k",
+        )
+        camera = motion.build_motion_alloc_4chunk_plan(
+            **common, allocation_mode="camera_budgeted"
+        )
+        content = motion.build_motion_alloc_4chunk_plan(
+            **common, allocation_mode="camera_content_budgeted"
+        )
+        camera_frame = next(frame for frame in camera.frames if frame.source_frame_id == 1)
+        content_frame = next(frame for frame in content.frames if frame.source_frame_id == 1)
+
+        self.assertAlmostEqual(content_frame.content_score, 1.0, places=6)
+        self.assertGreater(content_frame.base_token_count, camera_frame.base_token_count)
+        self.assertEqual(content.base_used_tokens, camera.base_used_tokens)
+
+    def test_prerope_novelty_uses_archived_content_k_not_cached_roped_k(self):
+        frame_tokens = 12
+        bank = _bank([(0, 0, 0, 0)], frame_tokens=frame_tokens)
+        block = bank.blocks[0]
+        raw = block.layers[0].k.clone()
+        roped = raw.clone()
+        # Reverse only the cached-K token pattern of frame 1.  pre-RoPE order
+        # must remain identical to the unperturbed raw feature order.
+        start, end = frame_tokens, 2 * frame_tokens
+        roped[:, start:end] = roped[:, start:end].flip(1)
+        bank.blocks[0] = replace(
+            block,
+            layers=(replace(block.layers[0], k=roped),),
+            novelty_k=raw,
+        )
+        cached = motion._novelty_order(
+            bank.blocks[0],
+            frame_tokens=frame_tokens,
+            novelty_feature_mode="cached_roped_k",
+        )
+        pre_rope = motion._novelty_order(
+            bank.blocks[0],
+            frame_tokens=frame_tokens,
+            novelty_feature_mode="pre_rope_k",
+        )
+
+        self.assertFalse(torch.equal(cached[1], pre_rope[1]))
+        self.assertTrue(
+            torch.equal(
+                pre_rope[1],
+                motion._novelty_order(
+                    replace(bank.blocks[0], layers=(replace(block.layers[0], k=raw),)),
+                    frame_tokens=frame_tokens,
+                    novelty_feature_mode="cached_roped_k",
+                )[1],
+            )
         )
 
 

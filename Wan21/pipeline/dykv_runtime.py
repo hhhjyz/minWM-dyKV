@@ -9,6 +9,7 @@ import torch
 from .dykv_fov import deterministic_sphere_points, select_fov_blocks
 from .dykv_memory import DyKVBank, DyKVConfig
 from .dykv_motion_novelty import (
+    build_motion_alloc_4chunk_plan,
     build_motion_retrieval_plan,
     materialize_motion_retrieval,
 )
@@ -121,7 +122,30 @@ class DyKVRuntime:
                 radius=self.config.fov_radius,
             )
         packing_plan = None
-        if self.config.packing_mode in {
+        if self.config.packing_mode == "motion_alloc_4chunk":
+            packing_plan = build_motion_alloc_4chunk_plan(
+                bank,
+                ranked_candidates,
+                distances,
+                motion_geometry_mode=self.config.motion_geometry_mode,
+                probe_points=self.probe_points,
+                radius=self.config.fov_radius,
+                scene_scale=self.config.projection_scene_scale,
+                frame_tokens=frame_tokens,
+                memory_frames=self.config.memory_frames,
+                sink_frames=self.config.sink_frames,
+                allocation_mode=self.config.motion_allocation_mode,
+                novelty_feature_mode=self.config.novelty_feature_mode,
+                candidate_block_indices=candidates,
+            )
+            payloads = materialize_motion_retrieval(
+                bank,
+                packing_plan,
+                target_device=target_device,
+                frame_tokens=frame_tokens,
+            )
+            selected = list(packing_plan.selected_block_indices)
+        elif self.config.packing_mode in {
             "motion_novelty_slot_capped",
             "motion_novelty_flat",
             "motion_novelty_backfill",
@@ -309,6 +333,11 @@ class DyKVRuntime:
                     "projected_symmetric_overlaps_per_frame_per_depth", []
                 ),
                 "motion_keep_ratios": diagnostics.get("motion_keep_ratios", []),
+                "motion_camera_scores": diagnostics.get("motion_camera_scores", []),
+                "motion_content_scores": diagnostics.get("motion_content_scores", []),
+                "motion_allocation_scores": diagnostics.get(
+                    "motion_allocation_scores", []
+                ),
                 "relative_rotation_degrees": diagnostics.get(
                     "relative_rotation_degrees", []
                 ),
@@ -382,6 +411,8 @@ class DyKVRuntime:
             "compression_keep_ratio": self.config.compression_keep_ratio,
             "motion_geometry_mode": self.config.motion_geometry_mode,
             "projection_scene_scale": self.config.projection_scene_scale,
+            "motion_allocation_mode": self.config.motion_allocation_mode,
+            "novelty_feature_mode": self.config.novelty_feature_mode,
             "branches": {branch: bank.summary() for branch, bank in self.banks.items()},
             "events": list(self.events),
         }

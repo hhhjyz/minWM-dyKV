@@ -125,6 +125,7 @@ class WanDiffusionWrapper(torch.nn.Module):
             dykv_memory_frames=8,
             dykv_local_frames=8,
             dykv_rope_train_frames=20,
+            dykv_retrieval_rope_mode="fixed_slot",
             use_camera=False
     ):
         super().__init__()
@@ -139,6 +140,7 @@ class WanDiffusionWrapper(torch.nn.Module):
                 dykv_memory_frames=dykv_memory_frames,
                 dykv_local_frames=dykv_local_frames,
                 dykv_rope_train_frames=dykv_rope_train_frames,
+                dykv_retrieval_rope_mode=dykv_retrieval_rope_mode,
             )
         else:
             self.model = WanModel.from_pretrained(f"Wan21/wan_models/{model_name}/")

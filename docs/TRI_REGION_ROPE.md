@@ -96,3 +96,40 @@ chunk 假设固定长度：每个压缩 frame segment 显式携带 `source_frame
 当前测试覆盖按块 rebase、source-order 下的非单调 virtual slot、多个压缩 segment 共享槽、
 flat segment 跨物理 `F` 边界、`1/4` 原子对齐、旧布局单槽容量上限、query 固定映射到
 16--19，以及 baseline 空 retrieval 布局。
+
+## 检索区 RoPE 模式
+
+`TriRegionSpec.retrieval_rope_mode` 控制检索 KV 如何放置到时序 RoPE 轴上。三种模式：
+
+| 模式 | Q 位置 | 检索 K 位置 | local K 位置 | 相对距离 | 训练范围外？ |
+| --- | --- | --- | --- | --- | --- |
+| `fixed_slot`（默认） | 19 | `virtual_slot`（4--11） | 12--15 | 被压缩，不反映真实 age | 否 |
+| `honest` | 真实帧号 | 真实帧号 | 真实帧号 | 精确 | 是（位置 >19） |
+| `age_ordered` | 19 | 4--11（按真实 age 排序） | 12--15 | 检索区间内有序，绝对 age 仍被压缩 | 否 |
+
+### `fixed_slot`（旧默认）
+
+检索 segment 映射到 `virtual_slot_id`（4--11），与真实时间距离无关。长视频下模型把
+远期历史当作近期历史，造成"时间谎言"——10s 时谎言 ≤5 步，20s 时 ≤25 步。
+
+### `honest`
+
+不做任何 rebase。Q 和所有 K 保留真实帧号作为 RoPE 位置，相对距离精确。频率表有 1024
+个位置（`rope_params(1024, ...)`），支持 ~250s 生成。模型训练时只见过位置 0--19，
+位置 >19 属于 RoPE 外推；theta=10000 下低频分量在距离 100 以内变化平缓，外推风险可控。
+
+### `age_ordered`
+
+Q 仍 rebase 到 19，local 仍映射到 12--15（对近期帧诚实），但检索 segment 按真实 age
+排序后映射到 4--11：最老 → 4，最新 → 11。保留了检索 token 之间的相对时序顺序，且不
+超出训练范围，但绝对 age 仍被压缩。
+
+### 选择建议
+
+- **`honest`**：最可能修复长视频下检索伤害大于收益的问题。模型能通过大相对距离自动降低
+  对远期 KV 的注意力权重，而不是被误导为"近期"。
+- **`age_ordered`**：如果 `honest` 的 RoPE 外推质量不可接受，退回训练范围内但保留
+  检索排序的诚实性。
+- **`fixed_slot`**：仅用于与旧结果复现对比。
+
+在 `dykv_cases.py` 中通过 `retrieval_rope_mode=` 字段为每个 case 指定模式。

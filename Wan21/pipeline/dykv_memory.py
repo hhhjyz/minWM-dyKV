@@ -45,6 +45,8 @@ class DyKVConfig:
     fov_radius: float = 8.0
     motion_geometry_mode: str = "projected_multidepth"
     projection_scene_scale: float = 8.0
+    novelty_feature_mode: str = "cached_roped_k"
+    motion_allocation_mode: str = "legacy"
 
     def validate(self, *, chunk_frames: int) -> "DyKVConfig":
         if self.memory_frames <= 0:
@@ -83,6 +85,14 @@ class DyKVConfig:
             raise ValueError("dyKV retrieval_mode must be fov or worldkv_pose")
         if self.motion_geometry_mode not in {"projected_multidepth", "sphere_fov"}:
             raise ValueError("unsupported dyKV motion_geometry_mode")
+        if self.novelty_feature_mode not in {"cached_roped_k", "pre_rope_k"}:
+            raise ValueError("unsupported dyKV novelty_feature_mode")
+        if self.motion_allocation_mode not in {
+            "legacy",
+            "camera_budgeted",
+            "camera_content_budgeted",
+        }:
+            raise ValueError("unsupported dyKV motion_allocation_mode")
         if (
             not math.isfinite(self.projection_scene_scale)
             or self.projection_scene_scale <= 0.0
@@ -97,6 +107,7 @@ class DyKVConfig:
             "motion_novelty_flat",
             "motion_novelty_backfill",
             "motion_novelty_duplicate",
+            "motion_alloc_4chunk",
         }:
             raise ValueError(
                 "unsupported dyKV packing_mode"
@@ -149,6 +160,9 @@ class MemoryBlock:
     viewmats: torch.Tensor | None = None
     Ks: torch.Tensor | None = None
     spatial_shape: tuple[int, int] | None = None
+    # Layer-0 normalized K before temporal RoPE.  Only cases explicitly using
+    # RoPE-free novelty allocate and archive this tensor.
+    novelty_k: torch.Tensor | None = None
 
     @property
     def frame_end(self) -> int:
@@ -429,6 +443,7 @@ class DyKVBank:
         if token_count <= 0:
             raise ValueError("archive block must contain at least one token")
         layers: list[LayerKV] = []
+        novelty_k = None
         for layer_index, cache in enumerate(caches):
             local_end = int(cache["local_end_index"].item())
             local_start = local_end - token_count
@@ -443,6 +458,10 @@ class DyKVBank:
                     _copy_off_cache(cache["v"][:, local_start:local_end], self.device),
                 )
             )
+            if layer_index == 0 and "content_k" in cache:
+                novelty_k = _copy_off_cache(
+                    cache["content_k"][:, local_start:local_end], self.device
+                )
 
         stored_viewmats = None
         if viewmats is not None:
@@ -463,6 +482,7 @@ class DyKVBank:
             viewmats=stored_viewmats,
             Ks=stored_Ks,
             spatial_shape=stored_spatial_shape,
+            novelty_k=novelty_k,
         )
         self.blocks.append(block)
         return block

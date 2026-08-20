@@ -397,3 +397,61 @@ sheet 同样只能用于定位分叉时刻。
    per-token attention、entropy、head variance 和 selection kind；
 7. **RoPE 布局对照**：在同一 MBench 样本上配对比较 `fixed_slot` 与 `honest`，隔离 temporal
    phase collision 和 token selection 的影响。
+
+## 8. 第一阶段优化实现（2026-08-20）
+
+本轮把最优先的三个问题拆成可逐项归因的 case。三者共享 FOV retrieval、原始 KV/source-frame
+顺序、flat 跨 slot 拼接、完整 anchor，以及固定的有效预算：最多选排名最靠前的 4 个合法
+chunk；每个 chunk 保留 `2F`，因此历史充足时严格为 `4 × 2F = 8F`。其中 4 个 anchor 固定
+占 `4F`，另外 `4F` 在 12 个 non-anchor latent 间连续按比例分配，不做档位量化。
+
+| case | chunk / 总预算 | non-anchor 数量分配 | token novelty 排序 | 单一新增变量 |
+| --- | --- | --- | --- | --- |
+| `motion_alloc_cam_4chunk` | 最多 4 / 每 chunk `2F` | projected camera score | cached RoPE K | 固定 4-chunk 与公平 `8F` |
+| `motion_alloc_cam_content_4chunk` | 同上 | `max(camera, content)` | cached RoPE K | 修复静止相机动态内容误压缩 |
+| `motion_alloc_cam_content_prerope_4chunk` | 同上 | 同上 | layer-0 pre-RoPE K | 去掉 temporal RoPE 对排序的污染 |
+
+### 8.1 固定预算分配
+
+相机分数仍使用已经验证的双向二维多深度投影出界比例。12 个 non-anchor 的整数 token 数通过
+带单帧 `F` 上限的确定性 proportional water-filling 得到；最大余数规则处理整数舍入，保证总和
+严格等于 `4F`。若所有分数均为 0，则在所有 non-anchor 间均分，而不是把动态预算丢掉。历史
+不足 4 chunk 时，每个有效 chunk 仍使用 `2F`，不会为了填满物理 `8F` 重复或虚构历史 token。
+
+### 8.2 动态内容补偿
+
+内容分数使用 layer-0、对应空间 token 的 anchor-relative V cosine distance：
+
+```text
+q_content(i) = mean_tokens clamp((1 - cosine(V_i, V_anchor)) / 2, 0, 1)
+q_alloc(i)   = max(q_camera(i), q_content(i))
+```
+
+V 不经过 RoPE，因此这一修改可与下一步的 K novelty 去污染独立比较。这里的内容分数决定“分给
+该 latent 多少 token”，并不直接生成空间裁剪 mask；实际保留位置仍由 novelty 排序决定。
+
+### 8.3 pre-RoPE novelty
+
+最终 case 只在 transformer layer 0 的 live cache 中增加 `content_k`，在
+`causal_rope_apply` 之前写入归一化 K，并与 K/V 使用相同 rolling slice。归档时仅额外复制这一层
+descriptor 到 CPU bank；30 层实际 attention K/V 以及 materialization 路径不变。这样排序使用
+无 temporal phase 的 layer-0 K，而模型 attention 仍使用正常 RoPE K。
+
+新增事件诊断字段为 `motion_camera_scores`、`motion_content_scores`、
+`motion_allocation_scores`；summary/manifest 记录 `motion_allocation_mode` 与
+`novelty_feature_mode`。单元测试分别覆盖：固定选择 4 chunk 且精确 `8F`、静止相机动态帧获得
+更多 token、改变 cached RoPE K 不再改变 pre-RoPE novelty order。
+
+### 8.4 20s × 30 的最小判别实验
+
+主实验应使用相同 prompt、trajectory、seed 和模型权重，依次运行：
+
+1. `retr16_compression_r033`：固定 4 chunk / 约 `8F` 的旧 WorldKV 基线；
+2. `motion_alloc_cam_4chunk`：判断公平预算下 camera allocation 本身是否有效；
+3. `motion_alloc_cam_content_4chunk`：只判断内容动态补偿；
+4. `motion_alloc_cam_content_prerope_4chunk`：只判断 pre-RoPE novelty。
+
+报告 30 个样本的 paired delta，而不只报告各 case 均值：pose/closure PSNR、SSIM、LPIPS 的
+mean、median、bootstrap 95% CI、胜率，并按静态场景运动、动态物体、纯旋转、平移/混合运动分组。
+先核对每个 retrieval event 的 selected source blocks 和总 token 数；如果输入状态不一致，PSNR
+差异不能归因到当前单一变量。

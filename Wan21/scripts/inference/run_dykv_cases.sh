@@ -59,8 +59,11 @@ fi
 
 for case_name in "${CASE_LIST[@]}"; do
   case_output="$OUTPUT_ROOT/$case_name"
-  dykv_enabled=1
-  [ "$case_name" = "baseline" ] && dykv_enabled=0
+  dykv_enabled=$(python -c "
+import sys; sys.path.insert(0, 'Wan21')
+from dykv_cases import get_dykv_case
+print(1 if get_dykv_case('$case_name').enabled else 0)
+" 2>/dev/null || echo 1)
 
   echo "=== Running case: $case_name ==="
   (

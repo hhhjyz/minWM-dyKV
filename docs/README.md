@@ -56,6 +56,8 @@ export PYTHONPATH="$PWD/HY15:$PWD/Wan21:$PWD/shared:$PYTHONPATH"
 - [`RELEVANCE_ORDERED_RETRIEVAL.md`](RELEVANCE_ORDERED_RETRIEVAL.md)：按检索相关性分配 retrieval RoPE 位置；
 - [`MBENCH.md`](MBENCH.md)：用例转换、生成与评测流程；
 - [`MBENCH_TYPICAL_SAMPLES.md`](MBENCH_TYPICAL_SAMPLES.md)：四/八个典型样本及小规模对比命令；
+- [`LOOP_CLOSURE_EVAL.md`](LOOP_CLOSURE_EVAL.md)：MAG 风格 LPIPS 匹配与相机轨迹匹配两种闭环评测原理、实现与结果；
+- [`COMPRESSION_DEGRADATION_DIAGNOSIS.md`](COMPRESSION_DEGRADATION_DIAGNOSIS.md)：动态压缩 case 不如无压缩 case 的根因分析（novelty token 选择方向、chunk 内 overlap、anchor 选最远帧）与修复建议；
 - [`DYNAMIC_COMPRESSION_ATTENTION_DIAGNOSIS.md`](DYNAMIC_COMPRESSION_ATTENTION_DIAGNOSIS.md)：loop-closure 与同一 MBench 视频的配对 attention capture，包含分阶段 region/window 统计、source packing 重建及动态场景误压缩诊断；
 - [`EXPERIMENTS.md`](EXPERIMENTS.md)：实验矩阵、运行命令、环境与实测结果。
 

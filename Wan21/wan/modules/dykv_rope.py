@@ -19,17 +19,46 @@ PACKED_RETRIEVAL_LAYOUTS = frozenset(
 )
 
 
+ROPE_MODE_FIXED_SLOT = "fixed_slot"
+ROPE_MODE_HONEST = "honest"
+ROPE_MODE_AGE_ORDERED = "age_ordered"
+RETRIEVAL_ROPE_MODES = frozenset(
+    {ROPE_MODE_FIXED_SLOT, ROPE_MODE_HONEST, ROPE_MODE_AGE_ORDERED}
+)
+
+
 @dataclass(frozen=True)
 class TriRegionSpec:
     """Frame counts for contiguous ``sink | retrieval | local`` regions.
 
     ``local_frames`` includes both the recent cached frames and current query.
+
+    ``retrieval_rope_mode`` controls how retrieved KV is placed on the temporal
+    RoPE axis:
+
+    - ``"fixed_slot"`` (default, legacy): each retrieval segment is mapped to a
+      fixed ``virtual_slot_id`` in ``[sink, sink+memory-1]`` regardless of its
+      actual temporal age.  This is the original tri-region design but creates a
+      growing "temporal lie" for long videos because the model sees distant
+      history at positions that pretend to be recent.
+    - ``"honest"``: no rebase at all.  Query and all keys keep their true frame
+      indices as RoPE positions.  Relative distances are exact.  Requires the
+      frequency table to cover the maximum frame index (1024 by default, enough
+      for ~250 s of generation).  The model trained on 20 frames, so positions
+      >19 are RoPE extrapolation.
+    - ``"age_ordered"``: query is rebased to ``rope_train_frames-1`` (as in
+      fixed_slot), local stays honest within ``[12, 19]``, but retrieval tokens
+      are mapped to ``[4, 11]`` ordered by their actual temporal age (oldest → 4,
+      youngest → 11).  This preserves relative ordering among retrieval tokens
+      and keeps everything inside the training range, but still compresses the
+      absolute age.
     """
 
     sink_frames: int = 4
     memory_frames: int = 8
     local_frames: int = 8
     rope_train_frames: int = 20
+    retrieval_rope_mode: str = ROPE_MODE_FIXED_SLOT
 
     def query_start(self, query_frames: int) -> int:
         return self.rope_train_frames - int(query_frames)
@@ -37,11 +66,22 @@ class TriRegionSpec:
     def local_start(self, query_frames: int) -> int:
         return self.rope_train_frames - self.local_frames
 
+    @property
+    def is_honest(self) -> bool:
+        return self.retrieval_rope_mode == ROPE_MODE_HONEST
+
     def validate(self, query_frames: int) -> None:
         if query_frames <= 0:
             raise ValueError("tri-region query must contain complete frames")
         if query_frames > self.local_frames:
             raise ValueError("tri-region query exceeds the local RoPE region")
+        if self.retrieval_rope_mode not in RETRIEVAL_ROPE_MODES:
+            raise ValueError(
+                f"Unknown retrieval_rope_mode {self.retrieval_rope_mode!r}; "
+                f"expected one of {sorted(RETRIEVAL_ROPE_MODES)}"
+            )
+        if self.is_honest:
+            return
         retrieval_end = self.sink_frames + self.memory_frames
         local_start = self.local_start(query_frames)
         if retrieval_end > local_start:
@@ -100,9 +140,15 @@ def rebase_query(
     query_frames: int,
     spec: TriRegionSpec,
 ) -> torch.Tensor:
-    """Map the current query chunk to the end of the trained RoPE range."""
+    """Map the current query chunk to the end of the trained RoPE range.
+
+    In ``honest`` mode the query keeps its true frame index so that relative
+    distances to all keys are exact.
+    """
 
     spec.validate(query_frames)
+    if spec.is_honest:
+        return query
     return shift_roped_time(
         query,
         freqs,
@@ -154,9 +200,10 @@ def compose_tri_region(
     local_source_start = int(current_end_frame) - local_frame_count
     past_local_frames = max(0, local_frame_count - int(query_frames))
     local_target_start = spec.query_start(query_frames) - past_local_frames
-    local_k = shift_roped_time(
-        local_k, freqs, local_target_start - local_source_start
-    )
+    if not spec.is_honest:
+        local_k = shift_roped_time(
+            local_k, freqs, local_target_start - local_source_start
+        )
 
     region_k = [sink_k]
     region_v = [sink_v]
@@ -223,18 +270,52 @@ def compose_tri_region(
 
             token_start = 0
             rebased_segments = []
-            for source_frame, token_length, virtual_slot in zip(
-                source_frames, token_lengths, virtual_slots
-            ):
-                token_end = token_start + token_length
-                rebased_segments.append(
-                    shift_roped_time(
-                        retrieval_k[:, token_start:token_end],
-                        freqs,
-                        virtual_slot - source_frame,
+            if spec.is_honest:
+                for source_frame, token_length, virtual_slot in zip(
+                    source_frames, token_lengths, virtual_slots
+                ):
+                    token_end = token_start + token_length
+                    rebased_segments.append(
+                        retrieval_k[:, token_start:token_end]
                     )
-                )
-                token_start = token_end
+                    token_start = token_end
+            elif spec.retrieval_rope_mode == ROPE_MODE_AGE_ORDERED:
+                ages = [int(current_end_frame) - sf for sf in source_frames]
+                min_age = min(ages)
+                max_age = max(ages)
+                age_span = max(1, max_age - min_age)
+                slot_lo = spec.sink_frames
+                slot_hi = spec.sink_frames + spec.memory_frames - 1
+                slot_span = max(1, slot_hi - slot_lo)
+                for source_frame, token_length, age in zip(
+                    source_frames, token_lengths, ages
+                ):
+                    token_end = token_start + token_length
+                    target = slot_hi - int(
+                        round((age - min_age) / age_span * slot_span)
+                    )
+                    target = max(slot_lo, min(slot_hi, target))
+                    rebased_segments.append(
+                        shift_roped_time(
+                            retrieval_k[:, token_start:token_end],
+                            freqs,
+                            target - source_frame,
+                        )
+                    )
+                    token_start = token_end
+            else:
+                for source_frame, token_length, virtual_slot in zip(
+                    source_frames, token_lengths, virtual_slots
+                ):
+                    token_end = token_start + token_length
+                    rebased_segments.append(
+                        shift_roped_time(
+                            retrieval_k[:, token_start:token_end],
+                            freqs,
+                            virtual_slot - source_frame,
+                        )
+                    )
+                    token_start = token_end
             region_k.append(torch.cat(rebased_segments, dim=1))
             region_v.append(retrieval_v)
         else:
@@ -252,20 +333,54 @@ def compose_tri_region(
             target_start = spec.sink_frames
             token_start = 0
             rebased_chunks = []
-            for source_start, frame_count, token_length in zip(
-                source_starts, frame_counts, token_lengths
-            ):
-                token_end = token_start + token_length
-                rebased_chunks.append(
-                    shift_roped_time(
-                        retrieval_k[:, token_start:token_end],
-                        freqs,
-                        target_start - source_start,
+            if spec.is_honest:
+                for source_start, frame_count, token_length in zip(
+                    source_starts, frame_counts, token_lengths
+                ):
+                    token_end = token_start + token_length
+                    rebased_chunks.append(
+                        retrieval_k[:, token_start:token_end]
                     )
-                )
-                target_start += frame_count
-                token_start = token_end
-            if target_start > spec.local_start(query_frames):
+                    token_start = token_end
+            elif spec.retrieval_rope_mode == ROPE_MODE_AGE_ORDERED:
+                ages = [int(current_end_frame) - ss for ss in source_starts]
+                min_age = min(ages)
+                max_age = max(ages)
+                age_span = max(1, max_age - min_age)
+                slot_lo = spec.sink_frames
+                slot_hi = spec.sink_frames + spec.memory_frames - 1
+                slot_span = max(1, slot_hi - slot_lo)
+                for source_start, frame_count, token_length, age in zip(
+                    source_starts, frame_counts, token_lengths, ages
+                ):
+                    token_end = token_start + token_length
+                    target = slot_hi - int(
+                        round((age - min_age) / age_span * slot_span)
+                    )
+                    target = max(slot_lo, min(slot_hi, target))
+                    rebased_chunks.append(
+                        shift_roped_time(
+                            retrieval_k[:, token_start:token_end],
+                            freqs,
+                            target - source_start,
+                        )
+                    )
+                    token_start = token_end
+            else:
+                for source_start, frame_count, token_length in zip(
+                    source_starts, frame_counts, token_lengths
+                ):
+                    token_end = token_start + token_length
+                    rebased_chunks.append(
+                        shift_roped_time(
+                            retrieval_k[:, token_start:token_end],
+                            freqs,
+                            target_start - source_start,
+                        )
+                    )
+                    target_start += frame_count
+                    token_start = token_end
+            if not spec.is_honest and target_start > spec.local_start(query_frames):
                 raise ValueError("retrieval region overlaps the local RoPE region")
             if rebased_chunks:
                 region_k.append(torch.cat(rebased_chunks, dim=1))

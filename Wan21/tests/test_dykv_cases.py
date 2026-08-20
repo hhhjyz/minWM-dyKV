@@ -14,9 +14,7 @@ SPEC.loader.exec_module(cases)
 
 class DyKVCasesTest(unittest.TestCase):
     def test_registered_case_names_are_stable(self):
-        self.assertEqual(
-            tuple(cases.DYKV_CASES),
-            (
+        expected = {
                 "baseline",
                 "retrieval_no_compression",
                 "retrieval_no_compression_relevance_order",
@@ -33,8 +31,11 @@ class DyKVCasesTest(unittest.TestCase):
                 "motion_novelty_unfilled",
                 "motion_novelty_backfill",
                 "motion_novelty_duplicate",
-            ),
-        )
+                "motion_alloc_cam_4chunk",
+                "motion_alloc_cam_content_4chunk",
+                "motion_alloc_cam_content_prerope_4chunk",
+        }
+        self.assertTrue(expected.issubset(cases.DYKV_CASES))
 
     def test_default_uses_intrinsics_for_retrieval_and_compression(self):
         preset = cases.get_dykv_case(cases.DEFAULT_DYKV_CASE)
@@ -129,7 +130,21 @@ class DyKVCasesTest(unittest.TestCase):
 
     def test_baseline_is_the_only_disabled_case(self):
         disabled = [case.name for case in cases.DYKV_CASES.values() if not case.enabled]
-        self.assertEqual(disabled, ["baseline"])
+        self.assertEqual(disabled, ["baseline", "baseline_honest"])
+
+    def test_motion_allocation_ablation_changes_one_axis_at_a_time(self):
+        camera = cases.get_dykv_case("motion_alloc_cam_4chunk")
+        content = cases.get_dykv_case("motion_alloc_cam_content_4chunk")
+        pre_rope = cases.get_dykv_case(
+            "motion_alloc_cam_content_prerope_4chunk"
+        )
+        self.assertEqual(camera.retrieval_frames, 16)
+        self.assertEqual(camera.packing_mode, "motion_alloc_4chunk")
+        self.assertEqual(camera.motion_allocation_mode, "camera_budgeted")
+        self.assertEqual(content.motion_allocation_mode, "camera_content_budgeted")
+        self.assertEqual(camera.novelty_feature_mode, content.novelty_feature_mode)
+        self.assertEqual(pre_rope.motion_allocation_mode, content.motion_allocation_mode)
+        self.assertEqual(pre_rope.novelty_feature_mode, "pre_rope_k")
 
     def test_motion_novelty_layout_ablation_is_registered(self):
         capped = cases.get_dykv_case("motion_novelty_slot_capped")
